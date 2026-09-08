@@ -70,3 +70,4 @@ src/
 ```
 
 Agle step (Phase 1) me hum `Auth.jsx` ko real login/signup se bharenge.
+ 
