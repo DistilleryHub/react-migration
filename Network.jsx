@@ -1,11 +1,130 @@
+import { useEffect, useMemo, useState } from 'react';
+import {
+  collection, query, where, onSnapshot, addDoc, doc, updateDoc, serverTimestamp,
+} from 'firebase/firestore';
+import { db } from './firebase';
+import { useAuth } from './AuthContext';
+import { useToast } from './ToastContext';
+
 export default function Network() {
+  const { currentUser, currentProfile } = useAuth();
+  const toast = useToast();
+  const [people, setPeople] = useState([]);
+  const [connections, setConnections] = useState([]);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'users'), (snap) => {
+      setPeople(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const qFrom = query(collection(db, 'connections'), where('from', '==', currentUser.uid));
+    const qTo = query(collection(db, 'connections'), where('to', '==', currentUser.uid));
+    let fromDocs = [], toDocs = [];
+    const merge = () => setConnections([...fromDocs, ...toDocs]);
+    const unsub1 = onSnapshot(qFrom, (snap) => { fromDocs = snap.docs.map((d) => ({ id: d.id, ...d.data() })); merge(); });
+    const unsub2 = onSnapshot(qTo, (snap) => { toDocs = snap.docs.map((d) => ({ id: d.id, ...d.data() })); merge(); });
+    return () => { unsub1(); unsub2(); };
+  }, [currentUser]);
+
+  function connectionWith(uid) {
+    return connections.find((c) => c.from === uid || c.to === uid);
+  }
+
+  async function sendRequest(person) {
+    await addDoc(collection(db, 'connections'), {
+      from: currentUser.uid, to: person.id, status: 'pending', createdAt: serverTimestamp(),
+    });
+    toast(`Request sent to ${person.name}`);
+  }
+
+  async function acceptRequest(conn) {
+    await updateDoc(doc(db, 'connections', conn.id), { status: 'accepted' });
+  }
+
+  const visiblePeople = useMemo(() => {
+    return people
+      .filter((p) => p.id !== currentUser?.uid)
+      .filter((p) => !(currentProfile?.blocked || []).includes(p.id))
+      .filter((p) => !(p.blocked || []).includes(currentUser?.uid))
+      .filter((p) => {
+        if (!search.trim()) return true;
+        const s = search.toLowerCase();
+        return p.name?.toLowerCase().includes(s) || p.headline?.toLowerCase().includes(s) || p.company?.toLowerCase().includes(s);
+      });
+  }, [people, currentUser, currentProfile, search]);
+
+  const pendingIncoming = connections.filter((c) => c.to === currentUser?.uid && c.status === 'pending');
+
   return (
-    <div className="page-stub">
-      <h1>Network</h1>
-      <p>
-        Ye page abhi placeholder hai — old app.js/index.html ke Network
-        feature ka React version Phase 2 me migrate hoga.
-      </p>
+    <div className="network-page">
+      <div className="card">
+        <input
+          type="text"
+          placeholder="Search people by name, company, or role..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
+
+      {pendingIncoming.length > 0 && (
+        <div className="card">
+          <h3>Pending requests</h3>
+          {pendingIncoming.map((conn) => {
+            const person = people.find((p) => p.id === conn.from);
+            if (!person) return null;
+            return (
+              <div className="person-row" key={conn.id}>
+                <div className="avatar">
+                  {person.photoURL ? <img src={person.photoURL} alt="" /> : (person.name?.[0] || '?')}
+                </div>
+                <div className="person-info">
+                  <div className="person-name">{person.name}</div>
+                  <div className="person-headline">{person.headline}</div>
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={() => acceptRequest(conn)}>Accept</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="people-grid">
+        {visiblePeople.map((person) => {
+          const conn = connectionWith(person.id);
+          return (
+            <div className="card person-card" key={person.id}>
+              <div className="avatar avatar-lg">
+                {person.photoURL ? <img src={person.photoURL} alt="" /> : (person.name?.[0] || '?')}
+              </div>
+              <div className="person-name">{person.name}</div>
+              {person.headline && <div className="person-headline">{person.headline}</div>}
+              {person.company && <div className="person-company">{person.company}</div>}
+              {!conn && (
+                <button className="btn btn-primary btn-sm btn-block" onClick={() => sendRequest(person)}>
+                  Connect
+                </button>
+              )}
+              {conn?.status === 'pending' && conn.from === currentUser.uid && (
+                <button className="btn btn-ghost btn-sm btn-block" disabled>Pending</button>
+              )}
+              {conn?.status === 'pending' && conn.to === currentUser.uid && (
+                <button className="btn btn-primary btn-sm btn-block" onClick={() => acceptRequest(conn)}>
+                  Accept request
+                </button>
+              )}
+              {conn?.status === 'accepted' && (
+                <button className="btn btn-ghost btn-sm btn-block" disabled>Connected</button>
+              )}
+            </div>
+          );
+        })}
+        {visiblePeople.length === 0 && <div className="empty-state">No one matches your search.</div>}
+      </div>
     </div>
   );
 }
