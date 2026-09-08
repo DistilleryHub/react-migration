@@ -1,7 +1,13 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import {
-  onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
-  signOut, updateProfile, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail,
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+  GoogleAuthProvider,
+  signInWithPopup,
+  sendPasswordResetEmail,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { auth, db } from './firebase';
@@ -54,7 +60,7 @@ export function AuthProvider({ children }) {
     const snap = await getDoc(doc(db, 'users', cred.user.uid));
     if (!snap.exists()) {
       await setDoc(doc(db, 'users', cred.user.uid), {
-        name: cred.user.displayName || 'Member', headline: '', company: '', location: '', bio: '',
+        name: cred.user.displayName || 'Member', headline: '', company: '',
         photoURL: cred.user.photoURL || '', blocked: [], isAdmin: false,
         createdAt: serverTimestamp(),
       });
