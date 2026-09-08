@@ -1,19 +1,19 @@
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
-import { useAuth } from './context/AuthContext.jsx';
+import { useAuth } from './AuthContext.jsx';
 
-import Feed from './pages/Feed.jsx';
-import Auth from './pages/Auth.jsx';
-import Network from './pages/Network.jsx';
-import Jobs from './pages/Jobs.jsx';
-import Articles from './pages/Articles.jsx';
-import Status from './pages/Status.jsx';
-import Market from './pages/Market.jsx';
-import Videos from './pages/Videos.jsx';
-import FilesPage from './pages/FilesPage.jsx';
-import Learning from './pages/Learning.jsx';
-import Notifications from './pages/Notifications.jsx';
-import Chat from './pages/Chat.jsx';
-import Admin from './pages/Admin.jsx';
+import Feed from './Feed.jsx';
+import Auth from './Auth.jsx';
+import Network from './Network.jsx';
+import Jobs from './Jobs.jsx';
+import Articles from './Articles.jsx';
+import Status from './Status.jsx';
+import Market from './Market.jsx';
+import Videos from './Videos.jsx';
+import FilesPage from './FilesPage.jsx';
+import Learning from './Learning.jsx';
+import Notifications from './Notifications.jsx';
+import Chat from './Chat.jsx';
+import Admin from './Admin.jsx';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Feed', end: true },
