@@ -95,4 +95,71 @@ export default function Feed() {
 
   return (
     <div className="feed-page">
-      <form className="card composer
+      <form className="card composer" onSubmit={handlePost}>
+        <div className="composer-top">
+          <div className="avatar">
+            {currentProfile?.photoURL
+              ? <img src={currentProfile.photoURL} alt="" />
+              : (currentProfile?.name?.[0] || 'M')}
+          </div>
+          <textarea
+            placeholder="Share something with the distillery network..."
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={3}
+          />
+        </div>
+        {preview && (
+          <div className="composer-preview">
+            <img src={preview} alt="preview" />
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setImage(null); setPreview(''); }}>
+              Remove
+            </button>
+          </div>
+        )}
+        <div className="composer-actions">
+          <label className="btn btn-ghost btn-sm">
+            Add photo
+            <input type="file" accept="image/*" hidden onChange={handleImagePick} />
+          </label>
+          <button type="submit" className="btn btn-primary btn-sm" disabled={posting || (!text.trim() && !image)}>
+            {posting ? <span className="spinner" /> : 'Post'}
+          </button>
+        </div>
+      </form>
+
+      {posts.length === 0 && (
+        <div className="empty-state">No posts yet — be the first to share something.</div>
+      )}
+
+      {posts.map((post) => (
+        <div className="card post" key={post.id}>
+          <div className="post-header">
+            <div className="avatar">
+              {post.authorPhotoURL ? <img src={post.authorPhotoURL} alt="" /> : (post.authorName?.[0] || '?')}
+            </div>
+            <div className="post-author">
+              <div className="post-author-name">{post.authorName}</div>
+              {post.authorHeadline && <div className="post-author-headline">{post.authorHeadline}</div>}
+              <div className="post-time">{timeAgo(post.createdAt)}</div>
+            </div>
+            {post.authorId === currentUser.uid && (
+              <button className="btn btn-ghost btn-sm" onClick={() => removePost(post)}>Delete</button>
+            )}
+          </div>
+          {post.text && <p className="post-text">{post.text}</p>}
+          {post.imageURL && <img className="post-image" src={post.imageURL} alt="" />}
+          <div className="post-actions">
+            <button
+              type="button"
+              className={'btn btn-ghost btn-sm' + (post.likes?.includes(currentUser.uid) ? ' active' : '')}
+              onClick={() => toggleLike(post)}
+            >
+              👍 {post.likes?.length || 0}
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
