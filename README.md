@@ -71,3 +71,8 @@ src/
 
 Agle step (Phase 1) me hum `Auth.jsx` ko real login/signup se bharenge.
  
+- **Phase 0** — Project setup ✅
+- **Phase 1** — Auth ✅
+- **Phase 2** — Feed, Network/Connections ✅
+- **Phase 3** — Jobs, Articles, Marketplace, Videos, Files, Learning, Notifications
+- **Phase 4** — Chat/Messaging, WebRTC, Admin
