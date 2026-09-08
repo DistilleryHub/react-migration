@@ -1,4 +1,5 @@
-import { Routes, Route, NavLink } from 'react-router-dom';
+import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
+import { useAuth } from './context/AuthContext.jsx';
 
 import Feed from './pages/Feed.jsx';
 import Auth from './pages/Auth.jsx';
@@ -28,42 +29,82 @@ const NAV_ITEMS = [
   { to: '/chat', label: 'Chat' },
 ];
 
-export default function App() {
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="sidebar-brand">DistilleryHub</div>
-        <nav>
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
+// Everything except /auth requires a signed-in user — bounce to /auth otherwise.
+function RequireAuth({ children }) {
+  const { currentUser } = useAuth();
+  if (!currentUser) return <Navigate to="/auth" replace />;
+  return children;
+}
 
-      <main className="main-content">
-        <Routes>
-          <Route path="/" element={<Feed />} />
-          <Route path="/auth" element={<Auth />} />
-          <Route path="/network" element={<Network />} />
-          <Route path="/jobs" element={<Jobs />} />
-          <Route path="/articles" element={<Articles />} />
-          <Route path="/status" element={<Status />} />
-          <Route path="/market" element={<Market />} />
-          <Route path="/videos" element={<Videos />} />
-          <Route path="/files" element={<FilesPage />} />
-          <Route path="/learning" element={<Learning />} />
-          <Route path="/notifications" element={<Notifications />} />
-          <Route path="/chat" element={<Chat />} />
-          <Route path="/admin" element={<Admin />} />
-        </Routes>
-      </main>
-    </div>
+export default function App() {
+  const { currentUser, currentProfile, authLoading, logout } = useAuth();
+
+  if (authLoading) {
+    return (
+      <div className="auth-loading" style={{ display: 'flex' }}>
+        <span className="spinner" style={{ marginRight: 8 }} /> Connecting to DistilleryHub…
+      </div>
+    );
+  }
+
+  return (
+    <Routes>
+      <Route
+        path="/auth"
+        element={currentUser ? <Navigate to="/" replace /> : <Auth />}
+      />
+      <Route
+        path="/*"
+        element={
+          <RequireAuth>
+            <div className="app-shell">
+              <aside className="sidebar">
+                <div className="sidebar-brand">DistilleryHub</div>
+                <nav>
+                  {NAV_ITEMS.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.end}
+                      className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}
+                    >
+                      {item.label}
+                    </NavLink>
+                  ))}
+                  {currentProfile?.isAdmin && (
+                    <NavLink to="/admin" className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+                      Admin
+                    </NavLink>
+                  )}
+                </nav>
+                <div className="sidebar-footer">
+                  <div className="sidebar-user">{currentProfile?.name || 'Member'}</div>
+                  <button className="btn btn-ghost btn-sm btn-block" onClick={logout}>
+                    Sign out
+                  </button>
+                </div>
+              </aside>
+
+              <main className="main-content">
+                <Routes>
+                  <Route path="/" element={<Feed />} />
+                  <Route path="/network" element={<Network />} />
+                  <Route path="/jobs" element={<Jobs />} />
+                  <Route path="/articles" element={<Articles />} />
+                  <Route path="/status" element={<Status />} />
+                  <Route path="/market" element={<Market />} />
+                  <Route path="/videos" element={<Videos />} />
+                  <Route path="/files" element={<FilesPage />} />
+                  <Route path="/learning" element={<Learning />} />
+                  <Route path="/notifications" element={<Notifications />} />
+                  <Route path="/chat" element={<Chat />} />
+                  <Route path="/admin" element={<Admin />} />
+                </Routes>
+              </main>
+            </div>
+          </RequireAuth>
+        }
+      />
+    </Routes>
   );
 }
