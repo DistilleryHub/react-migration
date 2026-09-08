@@ -4,7 +4,7 @@ import {
   signOut, updateProfile, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
-import { auth, db } from '../firebase';
+import { auth, db } from './firebase';
 
 const AuthContext = createContext(null);
 const googleProvider = new GoogleAuthProvider();
