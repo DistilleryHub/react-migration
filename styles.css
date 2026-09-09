@@ -46,3 +46,23 @@
 .notification-row { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
 .notification-row.unread { border-left: 3px solid #2563eb; font-weight: 600; }
 .notification-text { flex: 1; }
+.status-bar { display: flex; gap: 12px; overflow-x: auto; padding: 8px 0; }
+.status-ring-item { display: flex; flex-direction: column; align-items: center; cursor: pointer; flex-shrink: 0; width: 72px; }
+.status-ring { padding: 3px; border-radius: 50%; border: 2px solid #ddd; }
+.status-ring.unseen { border-color: #2563eb; }
+.status-ring-name { font-size: 11px; margin-top: 4px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 72px; }
+.status-viewer { position: fixed; inset: 0; background: #000; z-index: 999; display: flex; flex-direction: column; }
+.status-progress-row { display: flex; gap: 4px; padding: 8px; }
+.status-progress-bar { flex: 1; height: 3px; background: rgba(255,255,255,0.3); border-radius: 2px; overflow: hidden; }
+.status-progress-fill { height: 100%; width: 0%; background: #fff; animation: statusFill 5s linear forwards; }
+.status-progress-fill.full { width: 100%; animation: none; }
+.status-progress-fill.active { animation: statusFill 5s linear forwards; }
+@keyframes statusFill { from { width: 0%; } to { width: 100%; } }
+.status-viewer-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; color: #fff; }
+.status-viewer-name { flex: 1; font-weight: 600; }
+.status-viewer-body { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; }
+.status-media { max-width: 100%; max-height: 100%; object-fit: contain; }
+.status-text-overlay { position: absolute; bottom: 40px; left: 16px; right: 16px; color: #fff; font-size: 18px; text-align: center; }
+.status-tap-zone { position: absolute; top: 0; bottom: 0; width: 40%; }
+.status-tap-left { left: 0; }
+.status-tap-right { right: 0; }
