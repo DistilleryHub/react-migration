@@ -1,11 +1,209 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc,
+  arrayUnion, serverTimestamp, Timestamp,
+} from 'firebase/firestore';
+import { db, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from './firebase';
+import { useAuth } from './AuthContext';
+import { useToast } from './ToastContext';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const STORY_DURATION = 5000; // ms per status while viewing
+
 export default function Status() {
+  const { currentUser, currentProfile } = useAuth();
+  const toast = useToast();
+  const [statuses, setStatuses] = useState([]);
+  const [text, setText] = useState('');
+  const [media, setMedia] = useState(null);
+  const [preview, setPreview] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [viewerGroup, setViewerGroup] = useState(null); // array of statuses for one user
+  const [viewerIndex, setViewerIndex] = useState(0);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    const cutoff = Timestamp.fromMillis(Date.now() - DAY_MS);
+    const q = query(collection(db, 'statuses'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setStatuses(all.filter((s) => s.createdAt && s.createdAt.toMillis() > cutoff.toMillis()));
+    });
+    return unsub;
+  }, []);
+
+  function handleMediaPick(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setMedia(file);
+    setPreview(URL.createObjectURL(file));
+  }
+
+  async function handlePost(e) {
+    e.preventDefault();
+    if (!text.trim() && !media) return;
+    setPosting(true);
+    try {
+      let mediaURL = '';
+      let mediaType = '';
+      if (media) {
+        mediaType = media.type.startsWith('video') ? 'video' : 'image';
+        const fd = new FormData();
+        fd.append('file', media);
+        fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+        const res = await fetch(
+          `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${mediaType}/upload`,
+          { method: 'POST', body: fd }
+        );
+        const data = await res.json();
+        if (!data.secure_url) throw new Error('Upload failed');
+        mediaURL = data.secure_url;
+      }
+      await addDoc(collection(db, 'statuses'), {
+        authorId: currentUser.uid,
+        authorName: currentProfile?.name || 'Member',
+        authorPhotoURL: currentProfile?.photoURL || '',
+        text: text.trim(),
+        mediaURL,
+        mediaType,
+        viewedBy: [],
+        createdAt: serverTimestamp(),
+      });
+      setText(''); setMedia(null); setPreview('');
+      toast('Status posted');
+    } catch (err) {
+      toast(err.message || 'Could not post status');
+    }
+    setPosting(false);
+  }
+
+  // Group statuses by author, own first
+  const groups = useMemo(() => {
+    const byAuthor = {};
+    statuses.forEach((s) => {
+      if (!byAuthor[s.authorId]) byAuthor[s.authorId] = [];
+      byAuthor[s.authorId].push(s);
+    });
+    Object.values(byAuthor).forEach((arr) => arr.sort((a, b) => (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0)));
+    const list = Object.values(byAuthor);
+    list.sort((a, b) => {
+      if (a[0].authorId === currentUser?.uid) return -1;
+      if (b[0].authorId === currentUser?.uid) return 1;
+      const aUnseen = a.some((s) => !s.viewedBy?.includes(currentUser?.uid));
+      const bUnseen = b.some((s) => !s.viewedBy?.includes(currentUser?.uid));
+      if (aUnseen === bUnseen) return 0;
+      return aUnseen ? -1 : 1;
+    });
+    return list;
+  }, [statuses, currentUser]);
+
+  function openGroup(group) {
+    setViewerGroup(group);
+    setViewerIndex(0);
+  }
+
+  function closeViewer() {
+    clearTimeout(timerRef.current);
+    setViewerGroup(null);
+  }
+
+  async function markViewed(item) {
+    if (item.viewedBy?.includes(currentUser.uid)) return;
+    await updateDoc(doc(db, 'statuses', item.id), { viewedBy: arrayUnion(currentUser.uid) });
+  }
+
+  useEffect(() => {
+    if (!viewerGroup) return;
+    const item = viewerGroup[viewerIndex];
+    markViewed(item);
+    timerRef.current = setTimeout(() => {
+      if (viewerIndex < viewerGroup.length - 1) {
+        setViewerIndex((i) => i + 1);
+      } else {
+        closeViewer();
+      }
+    }, STORY_DURATION);
+    return () => clearTimeout(timerRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewerGroup, viewerIndex]);
+
+  function goNext() {
+    clearTimeout(timerRef.current);
+    if (viewerIndex < viewerGroup.length - 1) setViewerIndex((i) => i + 1);
+    else closeViewer();
+  }
+
+  function goPrev() {
+    clearTimeout(timerRef.current);
+    if (viewerIndex > 0) setViewerIndex((i) => i - 1);
+  }
+
+  if (viewerGroup) {
+    const item = viewerGroup[viewerIndex];
+    return (
+      <div className="status-viewer">
+        <div className="status-progress-row">
+          {viewerGroup.map((_, i) => (
+            <div key={i} className="status-progress-bar">
+              <div className={'status-progress-fill' + (i < viewerIndex ? ' full' : i === viewerIndex ? ' active' : '')} />
+            </div>
+          ))}
+        </div>
+        <div className="status-viewer-header">
+          <div className="avatar">
+            {item.authorPhotoURL ? <img src={item.authorPhotoURL} alt="" /> : (item.authorName?.[0] || '?')}
+          </div>
+          <div className="status-viewer-name">{item.authorName}</div>
+          <button className="btn btn-ghost btn-sm" onClick={closeViewer}>✕</button>
+        </div>
+        <div className="status-viewer-body">
+          {item.mediaURL && item.mediaType === 'video' && (
+            <video src={item.mediaURL} autoPlay muted className="status-media" />
+          )}
+          {item.mediaURL && item.mediaType === 'image' && (
+            <img src={item.mediaURL} alt="" className="status-media" />
+          )}
+          {item.text && <div className="status-text-overlay">{item.text}</div>}
+        </div>
+        <div className="status-tap-zone status-tap-left" onClick={goPrev} />
+        <div className="status-tap-zone status-tap-right" onClick={goNext} />
+      </div>
+    );
+  }
+
   return (
-    <div className="page-stub">
-      <h1>Status / Stories</h1>
-      <p>
-        Ye page abhi placeholder hai — old app.js/index.html ke Status / Stories
-        feature ka React version Phase 3 me migrate hoga.
-      </p>
+    <div className="status-page">
+      <form className="card" onSubmit={handlePost}>
+        <div className="form-field">
+          <textarea placeholder="What's on your mind?" rows={2} value={text} onChange={(e) => setText(e.target.value)} />
+        </div>
+        {preview && <img className="composer-preview-img" src={preview} alt="" />}
+        <label className="btn btn-ghost btn-sm">
+          Add photo/video
+          <input type="file" accept="image/*,video/*" hidden onChange={handleMediaPick} />
+        </label>
+        <button type="submit" className="btn btn-primary btn-block" disabled={posting || (!text.trim() && !media)} style={{ marginTop: 8 }}>
+          {posting ? <span className="spinner" /> : 'Post status'}
+        </button>
+      </form>
+
+      <div className="status-bar">
+        {groups.length === 0 && <div className="empty-state">No active statuses right now.</div>}
+        {groups.map((group) => {
+          const hasUnseen = group.some((s) => !s.viewedBy?.includes(currentUser.uid));
+          const author = group[0];
+          return (
+            <div className="status-ring-item" key={author.authorId} onClick={() => openGroup(group)}>
+              <div className={'status-ring' + (hasUnseen ? ' unseen' : '')}>
+                <div className="avatar avatar-lg">
+                  {author.authorPhotoURL ? <img src={author.authorPhotoURL} alt="" /> : (author.authorName?.[0] || '?')}
+                </div>
+              </div>
+              <div className="status-ring-name">{author.authorId === currentUser.uid ? 'You' : author.authorName}</div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
-}
+            }
