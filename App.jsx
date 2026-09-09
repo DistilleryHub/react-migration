@@ -1,6 +1,5 @@
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import { useAuth } from './AuthContext.jsx';
-
 import Feed from './Feed.jsx';
 import Auth from './Auth.jsx';
 import Network from './Network.jsx';
@@ -14,9 +13,12 @@ import Learning from './Learning.jsx';
 import Notifications from './Notifications.jsx';
 import Chat from './Chat.jsx';
 import Admin from './Admin.jsx';
+import Profile from './Profile.jsx';
+import Search from './Search.jsx';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Feed', end: true },
+  { to: '/search', label: 'Search' },
   { to: '/network', label: 'Network' },
   { to: '/jobs', label: 'Jobs' },
   { to: '/articles', label: 'Articles' },
@@ -29,7 +31,6 @@ const NAV_ITEMS = [
   { to: '/chat', label: 'Chat' },
 ];
 
-// Everything except /auth requires a signed-in user — bounce to /auth otherwise.
 function RequireAuth({ children }) {
   const { currentUser } = useAuth();
   if (!currentUser) return <Navigate to="/auth" replace />;
@@ -78,16 +79,18 @@ export default function App() {
                   )}
                 </nav>
                 <div className="sidebar-footer">
-                  <div className="sidebar-user">{currentProfile?.name || 'Member'}</div>
+                  <NavLink to={`/profile/${currentUser?.uid}`} className="sidebar-user" style={{ textDecoration: 'none' }}>
+                    {currentProfile?.name || 'Member'}
+                  </NavLink>
                   <button className="btn btn-ghost btn-sm btn-block" onClick={logout}>
                     Sign out
                   </button>
                 </div>
               </aside>
-
               <main className="main-content">
                 <Routes>
                   <Route path="/" element={<Feed />} />
+                  <Route path="/search" element={<Search />} />
                   <Route path="/network" element={<Network />} />
                   <Route path="/jobs" element={<Jobs />} />
                   <Route path="/articles" element={<Articles />} />
@@ -99,6 +102,7 @@ export default function App() {
                   <Route path="/notifications" element={<Notifications />} />
                   <Route path="/chat" element={<Chat />} />
                   <Route path="/admin" element={<Admin />} />
+                  <Route path="/profile/:uid" element={<Profile />} />
                 </Routes>
               </main>
             </div>
