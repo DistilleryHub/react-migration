@@ -4,84 +4,199 @@ import { db } from './firebase';
 import { useAuth } from './AuthContext';
 import { useCall } from './CallContext';
 
-function LocalVideo({ stream, muted, videoOff }) {
-  const ref = useRef(null);
-  useEffect(() => { if (ref.current) ref.current.srcObject = stream; }, [stream]);
-  return (
-    <div className="call-tile call-tile-self">
-      <video ref={ref} autoPlay playsInline muted className={videoOff ? 'call-video-hidden' : ''} />
-      <div className="call-tile-label">You {muted && '🔇'}</div>
+// Small cache so we don't re-fetch the same user profile repeatedly during a call.
+const profileCache = {};
+
+function useUserProfile(uid) {
+  const [profile, setProfile] = useState(profileCache[uid] || null);
+  useEffect(() => {
+    if (!uid) return;
+    if (profileCache[uid]) { setProfile(profileCache[uid]); return; }
+    let cancelled = false;
+    getDoc(doc(db, 'users', uid)).then((snap) => {
+      if (cancelled) return;
+      const data = snap.exists() ? snap.data() : {};
+      profileCache[uid] = data;
+      setProfile(data);
+    });
+    return () => { cancelled = true; };
+  }, [uid]);
+  return profile || {};
+}
+
+function Avatar({ profile, size = 96 }) {
+  const initial = profile?.name?.[0]?.toUpperCase() || '?';
+  return profile?.photoURL ? (
+    <img
+      src={profile.photoURL}
+      alt=""
+      className="call-avatar"
+      style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }}
+    />
+  ) : (
+    <div
+      className="call-avatar call-avatar-fallback"
+      style={{ width: size, height: size, borderRadius: '50%' }}
+    >
+      {initial}
     </div>
   );
 }
 
-function RemoteVideo({ stream, name }) {
-  const ref = useRef(null);
-  useEffect(() => { if (ref.current) ref.current.srcObject = stream; }, [stream]);
-  return (
-    <div className="call-tile">
-      <video ref={ref} autoPlay playsInline />
-      <div className="call-tile-label">{name || 'Connecting…'}</div>
-    </div>
-  );
+function CallTimer({ startedAt }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+  const ss = String(elapsed % 60).padStart(2, '0');
+  return <span className="call-timer">{mm}:{ss}</span>;
 }
 
-export default function CallScreen() {
+// ---------------------------------------------------------------------
+// Incoming call — full-screen ringing UI, WhatsApp style.
+// ---------------------------------------------------------------------
+function IncomingCallOverlay({ call, onAccept, onDecline }) {
   const { currentUser } = useAuth();
-  const {
-    activeCall, remoteStreams, localStream, muted, videoOff,
-    incomingCall, joinCall, leaveCall, declineCall, toggleMute, toggleVideo,
-  } = useCall();
-  const [names, setNames] = useState({});
+  const otherUid = (call.participants || []).find((u) => u !== currentUser.uid);
+  const profile = useUserProfile(otherUid);
+
+  return (
+    <div className="call-overlay call-overlay-incoming">
+      <div className="call-incoming-top">
+        <span className="call-type-label">
+          {call.callType === 'video' ? 'Incoming video call' : 'Incoming voice call'}
+        </span>
+      </div>
+      <div className="call-incoming-center">
+        <Avatar profile={profile} size={140} />
+        <h2 className="call-caller-name">{profile.name || 'DistilleryHub member'}</h2>
+        <p className="call-ringing-text">is calling…</p>
+      </div>
+      <div className="call-incoming-actions">
+        <button className="call-btn call-btn-decline" onClick={onDecline} aria-label="Decline call">
+          <span>📞</span>
+        </button>
+        <button className="call-btn call-btn-accept" onClick={onAccept} aria-label="Accept call">
+          <span>📞</span>
+        </button>
+      </div>
+      <div className="call-incoming-labels">
+        <span>Decline</span>
+        <span>Accept</span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// Active call — full-screen remote video/avatar with local PiP + controls.
+// ---------------------------------------------------------------------
+function ActiveCallOverlay({ call, remoteStreams, localStream, muted, videoOff, onLeave, onToggleMute, onToggleVideo }) {
+  const { currentUser } = useAuth();
+  const otherUid = (call.participants || []).find((u) => u !== currentUser.uid);
+  const profile = useUserProfile(otherUid);
+  const remoteStream = remoteStreams[otherUid];
+
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const [startedAt] = useState(() => Date.now());
 
   useEffect(() => {
-    const call = activeCall || incomingCall;
-    if (!call) return;
-    call.participants.forEach(async (uid) => {
-      if (names[uid] || uid === currentUser?.uid) return;
-      const snap = await getDoc(doc(db, 'users', uid));
-      if (snap.exists()) setNames((prev) => ({ ...prev, [uid]: snap.data().name }));
-    });
-  }, [activeCall, incomingCall]);
+    if (localVideoRef.current) localVideoRef.current.srcObject = localStream || null;
+  }, [localStream]);
 
-  if (incomingCall && !activeCall) {
-    const callerName = names[incomingCall.initiatedBy] || 'Someone';
-    return (
-      <div className="call-overlay call-incoming">
-        <div className="call-incoming-card">
-          <div className="avatar avatar-lg" style={{ margin: '0 auto 14px' }}>{callerName[0] || '?'}</div>
-          <div className="call-incoming-name">{callerName}</div>
-          <div className="call-incoming-sub">
-            Incoming {incomingCall.callType === 'video' ? 'video' : 'voice'} call…
-          </div>
-          <div className="call-incoming-actions">
-            <button className="call-btn call-btn-decline" onClick={declineCall}>✕</button>
-            <button className="call-btn call-btn-accept" onClick={() => joinCall(incomingCall)}>✓</button>
-          </div>
+  useEffect(() => {
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream || null;
+  }, [remoteStream]);
+
+  const isVideoCall = call.callType === 'video';
+  const remoteHasVideo = isVideoCall && !!remoteStream;
+
+  return (
+    <div className="call-overlay call-overlay-active">
+      {remoteHasVideo ? (
+        <video ref={remoteVideoRef} className="call-remote-video" autoPlay playsInline />
+      ) : (
+        <div className="call-remote-audio-bg">
+          <Avatar profile={profile} size={140} />
         </div>
+      )}
+
+      <div className="call-active-header">
+        <h2 className="call-caller-name">{profile.name || 'DistilleryHub member'}</h2>
+        <CallTimer startedAt={startedAt} />
       </div>
+
+      {isVideoCall && localStream && (
+        <video
+          ref={localVideoRef}
+          className={'call-local-video' + (videoOff ? ' call-local-video-off' : '')}
+          autoPlay
+          playsInline
+          muted
+        />
+      )}
+
+      <div className="call-active-controls">
+        <button
+          className={'call-control-btn' + (muted ? ' active' : '')}
+          onClick={onToggleMute}
+          aria-label="Toggle mute"
+        >
+          {muted ? '🔇' : '🎙️'}
+        </button>
+
+        {isVideoCall && (
+          <button
+            className={'call-control-btn' + (videoOff ? ' active' : '')}
+            onClick={onToggleVideo}
+            aria-label="Toggle camera"
+          >
+            {videoOff ? '📷' : '🎥'}
+          </button>
+        )}
+
+        <button className="call-btn call-btn-decline call-btn-end" onClick={onLeave} aria-label="End call">
+          <span>📞</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+export default function CallScreen() {
+  const {
+    activeCall, remoteStreams, localStream, muted, videoOff, incomingCall,
+    joinCall, leaveCall, declineCall, toggleMute, toggleVideo,
+  } = useCall();
+
+  if (activeCall) {
+    return (
+      <ActiveCallOverlay
+        call={activeCall}
+        remoteStreams={remoteStreams}
+        localStream={localStream}
+        muted={muted}
+        videoOff={videoOff}
+        onLeave={leaveCall}
+        onToggleMute={toggleMute}
+        onToggleVideo={toggleVideo}
+      />
     );
   }
 
-  if (!activeCall) return null;
+  if (incomingCall) {
+    return (
+      <IncomingCallOverlay
+        call={incomingCall}
+        onAccept={() => joinCall(incomingCall)}
+        onDecline={declineCall}
+      />
+    );
+  }
 
-  const otherUids = activeCall.participants.filter((u) => u !== currentUser.uid);
-
-  return (
-    <div className="call-overlay">
-      <div className="call-grid">
-        <LocalVideo stream={localStream} muted={muted} videoOff={videoOff} />
-        {otherUids.map((uid) => (
-          <RemoteVideo key={uid} stream={remoteStreams[uid]} name={names[uid]} />
-        ))}
-      </div>
-      <div className="call-controls">
-        <button className="call-btn" onClick={toggleMute}>{muted ? '🔇' : '🎤'}</button>
-        {activeCall.callType === 'video' && (
-          <button className="call-btn" onClick={toggleVideo}>{videoOff ? '📷' : '📹'}</button>
-        )}
-        <button className="call-btn call-btn-end" onClick={leaveCall}>📞</button>
-      </div>
-    </div>
-  );
+  return null;
 }
