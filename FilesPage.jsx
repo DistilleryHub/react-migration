@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp,
 } from 'firebase/firestore';
@@ -6,13 +6,44 @@ import { db, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from './firebase'
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 
-export default function Files() {
+function formatSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function fileIcon(name = '') {
+  const ext = name.split('.').pop().toLowerCase();
+  if (['pdf'].includes(ext)) return '📕';
+  if (['doc', 'docx'].includes(ext)) return '📘';
+  if (['xls', 'xlsx', 'csv'].includes(ext)) return '📗';
+  if (['ppt', 'pptx'].includes(ext)) return '📙';
+  if (['zip', 'rar', '7z'].includes(ext)) return '🗜️';
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return '🖼️';
+  return '📄';
+}
+
+async function uploadToCloudinary(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+  const res = await fetch(
+    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/raw/upload`,
+    { method: 'POST', body: formData }
+  );
+  if (!res.ok) throw new Error('Upload failed');
+  const data = await res.json();
+  return data.secure_url;
+}
+
+export default function FilesPage() {
   const { currentUser, currentProfile } = useAuth();
   const toast = useToast();
   const [files, setFiles] = useState([]);
-  const [title, setTitle] = useState('');
-  const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [search, setSearch] = useState('');
+  const inputRef = useRef(null);
 
   useEffect(() => {
     const q = query(collection(db, 'files'), orderBy('createdAt', 'desc'));
@@ -22,66 +53,75 @@ export default function Files() {
     return unsub;
   }, []);
 
-  async function handleUpload(e) {
-    e.preventDefault();
-    if (!file || !title.trim()) return;
+  async function handleFileChosen(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-      const res = await fetch(
-        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/raw/upload`,
-        { method: 'POST', body: fd }
-      );
-      const data = await res.json();
-      if (!data.secure_url) throw new Error('Upload failed — check that your Cloudinary preset allows raw uploads');
+      const url = await uploadToCloudinary(file);
       await addDoc(collection(db, 'files'), {
-        title: title.trim(),
-        fileURL: data.secure_url,
-        fileName: file.name,
+        name: file.name,
+        size: file.size,
+        url,
         uploadedBy: currentUser.uid,
         uploadedByName: currentProfile?.name || 'Member',
         createdAt: serverTimestamp(),
       });
-      setTitle(''); setFile(null);
-      toast('File shared');
+      toast('File uploaded');
     } catch (err) {
-      toast(err.message || 'Upload failed');
+      toast('Upload failed');
     }
     setUploading(false);
   }
 
-  async function removeFile(f) {
-    if (f.uploadedBy !== currentUser.uid) return;
-    if (!confirm('Delete this file?')) return;
-    await deleteDoc(doc(db, 'files', f.id));
+  async function removeFile(file) {
+    if (file.uploadedBy !== currentUser.uid) return;
+    if (!confirm(`Delete "${file.name}"?`)) return;
+    await deleteDoc(doc(db, 'files', file.id));
   }
+
+  const filtered = files.filter((f) =>
+    f.name?.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div className="files-page">
-      <form className="card" onSubmit={handleUpload}>
-        <div className="form-field">
-          <input type="text" placeholder="File title" value={title} onChange={(e) => setTitle(e.target.value)} />
+      <div className="card">
+        <div className="composer-actions" style={{ marginBottom: search ? 10 : 0 }}>
+          <button className="btn btn-primary btn-sm" onClick={() => inputRef.current?.click()} disabled={uploading}>
+            {uploading ? <span className="spinner" /> : '+ Upload file'}
+          </button>
+          <input
+            type="text"
+            placeholder="Search files..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ maxWidth: 200 }}
+          />
         </div>
-        <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-        <button type="submit" className="btn btn-primary btn-block" disabled={uploading} style={{ marginTop: 8 }}>
-          {uploading ? <span className="spinner" /> : 'Upload'}
-        </button>
-      </form>
+        <input type="file" ref={inputRef} style={{ display: 'none' }} onChange={handleFileChosen} />
+      </div>
 
-      {files.length === 0 && <div className="empty-state">No files shared yet.</div>}
+      {filtered.length === 0 && (
+        <div className="empty-state">
+          {search ? 'No files match your search.' : 'No files shared yet.'}
+        </div>
+      )}
 
-      {files.map((f) => (
-        <div className="card file-row" key={f.id}>
+      {filtered.map((file) => (
+        <div className="card file-row" key={file.id}>
+          <div className="file-icon">{fileIcon(file.name)}</div>
           <div className="file-info">
-            <div className="file-title">{f.title}</div>
-            <div className="job-meta">{f.fileName} • shared by {f.uploadedByName}</div>
+            <a href={file.url} target="_blank" rel="noreferrer" className="file-name">{file.name}</a>
+            <div className="job-meta">
+              {formatSize(file.size)} • uploaded by {file.uploadedByName}
+            </div>
           </div>
-          <div className="job-actions">
-            <a className="btn btn-ghost btn-sm" href={f.fileURL} target="_blank" rel="noreferrer">Download</a>
-            {f.uploadedBy === currentUser.uid && (
-              <button className="btn btn-ghost btn-sm" onClick={() => removeFile(f)}>Delete</button>
+          <div className="file-actions">
+            <a href={file.url} target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm">Download</a>
+            {file.uploadedBy === currentUser.uid && (
+              <button className="btn btn-ghost btn-sm" onClick={() => removeFile(file)}>Delete</button>
             )}
           </div>
         </div>
