@@ -15,7 +15,7 @@ const firebaseConfig = {
   measurementId: "G-66L58LCCVY"
 };
 
-export const CLOUDINARY_CLOUD_NAME = "y8iguof1";
+export const CLOUDINARY_CLOUD_NAME = "y8iguofl";
 export const CLOUDINARY_UPLOAD_PRESET = "tdm_upload";
 
 export const fbApp = initializeApp(firebaseConfig);
