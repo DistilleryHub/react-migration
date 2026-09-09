@@ -1,4 +1,8 @@
 import React from 'react';
+const savedAccent = localStorage.getItem('dh-accent');
+if (savedAccent) document.documentElement.style.setProperty('--primary', savedAccent);
+const savedCompact = localStorage.getItem('dh-compact') === '1';
+if (savedCompact) document.documentElement.style.setProperty('--radius', '10px');
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App.jsx';
