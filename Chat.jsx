@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import {
   collection, query, where, orderBy, onSnapshot, addDoc, doc, setDoc, serverTimestamp,
 } from 'firebase/firestore';
@@ -20,17 +20,37 @@ function timeAgo(ts) {
   return `${Math.floor(hrs / 24)}d`;
 }
 
+const ATTACH_OPTIONS = [
+  { key: 'schedule', label: 'Schedule Message', icon: '🕒', color: '#4f7fff' },
+  { key: 'quickreply', label: 'Quick Reply', icon: '↗️', color: '#4f7fff' },
+  { key: 'location', label: 'Batch Location', icon: '📍', color: '#22c55e' },
+  { key: 'profile', label: 'Share Profile', icon: '👤', color: '#f97316' },
+  { key: 'photo', label: 'Photo', icon: '🖼️', color: '#ec4899' },
+  { key: 'video', label: 'Video', icon: '▶️', color: '#a855f7' },
+  { key: 'voice', label: 'Voice Note', icon: '🎤', color: '#f5576c' },
+  { key: 'document', label: 'Share Document', icon: '📄', color: '#f97316' },
+];
+
+const QUICK_REPLIES = [
+  'Thanks, will check and get back!',
+  'Can we schedule a call?',
+  'Sounds good 👍',
+];
+
 export default function Chat() {
   const { currentUser } = useAuth();
   const [people, setPeople] = useState([]);
   const [connections, setConnections] = useState([]);
   const [groupChats, setGroupChats] = useState([]);
-  const [activeChat, setActiveChat] = useState(null); // { type:'direct', person } or { type:'group', chat }
+  const [activeChat, setActiveChat] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
+  const [showAttach, setShowAttach] = useState(false);
+  const [showQuickReplies, setShowQuickReplies] = useState(false);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'users'), (snap) => {
@@ -80,29 +100,73 @@ export default function Chat() {
     return unsub;
   }, [activeChat, currentUser]);
 
-  async function sendMessage(e) {
-    e.preventDefault();
-    if (!text.trim() || !activeChat) return;
+  function getChatMeta() {
     const chatId = activeChat.type === 'direct'
       ? chatIdFor(currentUser.uid, activeChat.person.id)
       : activeChat.chat.id;
     const participants = activeChat.type === 'direct'
       ? [currentUser.uid, activeChat.person.id].sort()
       : activeChat.chat.participants;
-    const body = text.trim();
-    setText('');
+    return { chatId, participants };
+  }
+
+  async function sendRawMessage(body, extra = {}) {
+    if (!body.trim() && !extra.mediaUrl) return;
+    const { chatId, participants } = getChatMeta();
     await addDoc(collection(db, 'chats', chatId, 'messages'), {
       senderId: currentUser.uid,
       text: body,
       createdAt: serverTimestamp(),
+      ...extra,
     });
     await setDoc(doc(db, 'chats', chatId), {
       type: activeChat.type === 'group' ? 'group' : 'direct',
       participants,
       ...(activeChat.type === 'group' ? { name: activeChat.chat.name } : {}),
-      lastMessage: body,
+      lastMessage: body || `[${extra.attachmentType || 'attachment'}]`,
       lastMessageAt: serverTimestamp(),
     }, { merge: true });
+  }
+
+  async function sendMessage(e) {
+    e.preventDefault();
+    if (!text.trim() || !activeChat) return;
+    const body = text.trim();
+    setText('');
+    await sendRawMessage(body);
+  }
+
+  function handleAttachClick(key) {
+    setShowAttach(false);
+    if (key === 'schedule') {
+      alert('Schedule message — coming soon.');
+    } else if (key === 'quickreply') {
+      setShowQuickReplies(true);
+    } else if (key === 'location') {
+      const loc = prompt('Enter batch / distillery location:');
+      if (loc) sendRawMessage(`📍 ${loc}`, { attachmentType: 'location' });
+    } else if (key === 'profile') {
+      sendRawMessage(`👤 Shared profile: ${currentUser.displayName || currentUser.email}`, {
+        attachmentType: 'profile',
+        sharedUid: currentUser.uid,
+      });
+    } else if (key === 'photo' || key === 'video' || key === 'document') {
+      fileInputRef.current?.setAttribute('accept',
+        key === 'photo' ? 'image/*' : key === 'video' ? 'video/*' : '*/*');
+      fileInputRef.current?.setAttribute('data-kind', key);
+      fileInputRef.current?.click();
+    } else if (key === 'voice') {
+      alert('Voice notes need microphone recording + Firebase Storage — not wired up yet.');
+    }
+  }
+
+  function handleFileChosen(e) {
+    const file = e.target.files?.[0];
+    const kind = e.target.getAttribute('data-kind');
+    e.target.value = '';
+    if (!file) return;
+    // NOTE: actual upload requires Firebase Storage — not yet configured.
+    alert(`"${file.name}" selected. File/${kind} upload needs Firebase Storage setup — ask to wire this up.`);
   }
 
   async function createGroup(e) {
@@ -136,6 +200,7 @@ export default function Chat() {
           </div>
           <div className="chat-thread-name">{name}</div>
         </div>
+
         <div className="chat-messages">
           {messages.map((m) => (
             <div key={m.id} className={'chat-bubble' + (m.senderId === currentUser.uid ? ' mine' : '')}>
@@ -144,7 +209,37 @@ export default function Chat() {
             </div>
           ))}
         </div>
+
+        {showQuickReplies && (
+          <div className="quick-reply-row">
+            {QUICK_REPLIES.map((qr) => (
+              <button key={qr} className="quick-reply-chip" onClick={() => { sendRawMessage(qr); setShowQuickReplies(false); }}>
+                {qr}
+              </button>
+            ))}
+            <button className="quick-reply-chip quick-reply-close" onClick={() => setShowQuickReplies(false)}>✕</button>
+          </div>
+        )}
+
+        {showAttach && (
+          <div className="attach-menu">
+            {ATTACH_OPTIONS.map((opt) => (
+              <button key={opt.key} className="attach-item" onClick={() => handleAttachClick(opt.key)}>
+                <span className="attach-icon" style={{ background: opt.color + '22', color: opt.color }}>
+                  {opt.icon}
+                </span>
+                <span className="attach-label">{opt.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChosen} />
+
         <form className="chat-input-row" onSubmit={sendMessage}>
+          <button type="button" className="chat-attach-btn" onClick={() => setShowAttach((v) => !v)}>
+            {showAttach ? '✕' : '+'}
+          </button>
           <input
             type="text"
             placeholder="Type a message..."
@@ -214,4 +309,4 @@ export default function Chat() {
       ))}
     </div>
   );
-          }
+                     }
