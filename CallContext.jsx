@@ -1,245 +1,202 @@
-import { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
-import {
-  doc, collection, addDoc, updateDoc, deleteDoc, onSnapshot, query, where,
-  serverTimestamp, arrayRemove, getDoc, orderBy,
-} from 'firebase/firestore';
+import { useEffect, useRef, useState } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { useAuth } from './AuthContext';
+import { useCall } from './CallContext';
 
-const CallContext = createContext(null);
-export function useCall() { return useContext(CallContext); }
+// Small cache so we don't re-fetch the same user profile repeatedly during a call.
+const profileCache = {};
 
-const ICE_SERVERS = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ],
-};
-
-export function CallProvider({ children }) {
-  const { currentUser } = useAuth();
-  const [activeCall, setActiveCall] = useState(null);
-  const [remoteStreams, setRemoteStreams] = useState({});
-  const [localStream, setLocalStream] = useState(null);
-  const [muted, setMuted] = useState(false);
-  const [videoOff, setVideoOff] = useState(false);
-  const [incomingCall, setIncomingCall] = useState(null);
-
-  const peersRef = useRef({});
-  const localStreamRef = useRef(null);
-  const unsubSignalsRef = useRef(null);
-  const activeCallRef = useRef(null);
-
-  useEffect(() => { activeCallRef.current = activeCall; }, [activeCall]);
-
+function useUserProfile(uid) {
+  const [profile, setProfile] = useState(profileCache[uid] || null);
   useEffect(() => {
-    if (!currentUser) return;
-    const q = query(collection(db, 'calls'), where('participants', 'array-contains', currentUser.uid));
-    const unsub = onSnapshot(q, (snap) => {
-      snap.docChanges().forEach((change) => {
-        const data = { id: change.doc.id, ...change.doc.data() };
-        if (change.type === 'added' && data.status === 'ringing' && data.initiatedBy !== currentUser.uid) {
-          setIncomingCall(data);
-        }
-        if (data.status === 'ended' && activeCallRef.current?.id === data.id) {
-          endCallCleanup();
-        }
-      });
+    if (!uid) return;
+    if (profileCache[uid]) { setProfile(profileCache[uid]); return; }
+    let cancelled = false;
+    getDoc(doc(db, 'users', uid)).then((snap) => {
+      if (cancelled) return;
+      const data = snap.exists() ? snap.data() : {};
+      profileCache[uid] = data;
+      setProfile(data);
     });
-    return unsub;
-  }, [currentUser]);
+    return () => { cancelled = true; };
+  }, [uid]);
+  return profile || {};
+}
 
-  function createPeerConnection(peerUid, callId) {
-    const pc = new RTCPeerConnection(ICE_SERVERS);
+function Avatar({ profile, size = 96 }) {
+  const initial = profile?.name?.[0]?.toUpperCase() || '?';
+  return profile?.photoURL ? (
+    <img
+      src={profile.photoURL}
+      alt=""
+      className="call-avatar"
+      style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }}
+    />
+  ) : (
+    <div
+      className="call-avatar call-avatar-fallback"
+      style={{ width: size, height: size, borderRadius: '50%' }}
+    >
+      {initial}
+    </div>
+  );
+}
 
-    localStreamRef.current?.getTracks().forEach((track) => {
-      pc.addTrack(track, localStreamRef.current);
-    });
+function CallTimer({ startedAt }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+  const ss = String(elapsed % 60).padStart(2, '0');
+  return <span className="call-timer">{mm}:{ss}</span>;
+}
 
-    pc.ontrack = (event) => {
-      setRemoteStreams((prev) => ({ ...prev, [peerUid]: event.streams[0] }));
-    };
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        addDoc(collection(db, 'calls', callId, 'signals'), {
-          from: currentUser.uid,
-          to: peerUid,
-          kind: 'candidate',
-          payload: JSON.stringify(event.candidate),
-          createdAt: serverTimestamp(),
-        });
-      }
-    };
-
-    pc.onconnectionstatechange = () => {
-      if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
-        setRemoteStreams((prev) => {
-          const next = { ...prev };
-          delete next[peerUid];
-          return next;
-        });
-      }
-    };
-
-    peersRef.current[peerUid] = pc;
-    return pc;
-  }
-
-  async function connectToPeer(peerUid, callId, callType) {
-    const pc = createPeerConnection(peerUid, callId);
-    const initiate = currentUser.uid < peerUid;
-    if (initiate) {
-      const offer = await pc.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: callType === 'video',
-      });
-      await pc.setLocalDescription(offer);
-      await addDoc(collection(db, 'calls', callId, 'signals'), {
-        from: currentUser.uid,
-        to: peerUid,
-        kind: 'offer',
-        payload: JSON.stringify(offer),
-        createdAt: serverTimestamp(),
-      });
-    }
-  }
-
-  function listenForSignals(callId) {
-    const q = query(
-      collection(db, 'calls', callId, 'signals'),
-      where('to', '==', currentUser.uid),
-      orderBy('createdAt', 'asc')
-    );
-    return onSnapshot(q, (snap) => {
-      snap.docChanges().forEach(async (change) => {
-        if (change.type !== 'added') return;
-        const sig = change.doc.data();
-        const from = sig.from;
-        let pc = peersRef.current[from];
-        if (!pc) pc = createPeerConnection(from, callId);
-
-        const payload = JSON.parse(sig.payload);
-
-        try {
-          if (sig.kind === 'offer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(payload));
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            await addDoc(collection(db, 'calls', callId, 'signals'), {
-              from: currentUser.uid,
-              to: from,
-              kind: 'answer',
-              payload: JSON.stringify(answer),
-              createdAt: serverTimestamp(),
-            });
-          } else if (sig.kind === 'answer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(payload));
-          } else if (sig.kind === 'candidate') {
-            await pc.addIceCandidate(new RTCIceCandidate(payload));
-          }
-        } catch (e) { /* ignore stale signals */ }
-
-        deleteDoc(change.doc.ref).catch(() => {});
-      });
-    });
-  }
-
-  const startCall = useCallback(async (participantUids, callType = 'video') => {
-    if (!currentUser) return;
-    const allParticipants = [...new Set([currentUser.uid, ...participantUids])];
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: callType === 'video',
-    });
-    localStreamRef.current = stream;
-    setLocalStream(stream);
-
-    const callRef = await addDoc(collection(db, 'calls'), {
-      participants: allParticipants,
-      initiatedBy: currentUser.uid,
-      callType,
-      status: 'ringing',
-      createdAt: serverTimestamp(),
-    });
-
-    setActiveCall({ id: callRef.id, callType, participants: allParticipants });
-    unsubSignalsRef.current = listenForSignals(callRef.id);
-
-    for (const uid of allParticipants) {
-      if (uid !== currentUser.uid) await connectToPeer(uid, callRef.id, callType);
-    }
-
-    await updateDoc(doc(db, 'calls', callRef.id), { status: 'active' });
-  }, [currentUser]);
-
-  const joinCall = useCallback(async (call) => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: call.callType === 'video',
-    });
-    localStreamRef.current = stream;
-    setLocalStream(stream);
-    setIncomingCall(null);
-    setActiveCall({ id: call.id, callType: call.callType, participants: call.participants });
-
-    unsubSignalsRef.current = listenForSignals(call.id);
-
-    for (const uid of call.participants) {
-      if (uid !== currentUser.uid) await connectToPeer(uid, call.id, call.callType);
-    }
-  }, [currentUser]);
-
-  function endCallCleanup() {
-    Object.values(peersRef.current).forEach((pc) => pc.close());
-    peersRef.current = {};
-    localStreamRef.current?.getTracks().forEach((t) => t.stop());
-    localStreamRef.current = null;
-    setLocalStream(null);
-    setRemoteStreams({});
-    setActiveCall(null);
-    setMuted(false);
-    setVideoOff(false);
-    if (unsubSignalsRef.current) { unsubSignalsRef.current(); unsubSignalsRef.current = null; }
-  }
-
-  const leaveCall = useCallback(async () => {
-    if (!activeCall) return;
-    const callRef = doc(db, 'calls', activeCall.id);
-    const snap = await getDoc(callRef);
-    if (snap.exists()) {
-      const remaining = (snap.data().participants || []).filter((u) => u !== currentUser.uid);
-      if (remaining.length <= 1) {
-        await updateDoc(callRef, { status: 'ended' });
-      } else {
-        await updateDoc(callRef, { participants: arrayRemove(currentUser.uid) });
-      }
-    }
-    endCallCleanup();
-  }, [activeCall, currentUser]);
-
-  const declineCall = useCallback(() => setIncomingCall(null), []);
-
-  const toggleMute = useCallback(() => {
-    if (!localStreamRef.current) return;
-    const next = !muted;
-    localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = !next));
-    setMuted(next);
-  }, [muted]);
-
-  const toggleVideo = useCallback(() => {
-    if (!localStreamRef.current) return;
-    const next = !videoOff;
-    localStreamRef.current.getVideoTracks().forEach((t) => (t.enabled = !next));
-    setVideoOff(next);
-  }, [videoOff]);
+// ---------------------------------------------------------------------
+// Incoming call — full-screen ringing UI, WhatsApp style.
+// ---------------------------------------------------------------------
+function IncomingCallOverlay({ call, onAccept, onDecline }) {
+  const { currentUser } = useAuth();
+  const otherUid = (call.participants || []).find((u) => u !== currentUser.uid);
+  const profile = useUserProfile(otherUid);
 
   return (
-    <CallContext.Provider value={{
-      activeCall, remoteStreams, localStream, muted, videoOff, incomingCall,
-      startCall, joinCall, leaveCall, declineCall, toggleMute, toggleVideo,
-    }}>
-      {children}
-    </CallContext.Provider>
+    <div className="call-overlay call-overlay-incoming">
+      <div className="call-incoming-top">
+        <span className="call-type-label">
+          {call.callType === 'video' ? 'Incoming video call' : 'Incoming voice call'}
+        </span>
+      </div>
+      <div className="call-incoming-center">
+        <Avatar profile={profile} size={140} />
+        <h2 className="call-caller-name">{profile.name || 'DistilleryHub member'}</h2>
+        <p className="call-ringing-text">is calling…</p>
+      </div>
+      <div className="call-incoming-actions">
+        <button className="call-btn call-btn-decline" onClick={onDecline} aria-label="Decline call">
+          <span>📞</span>
+        </button>
+        <button className="call-btn call-btn-accept" onClick={onAccept} aria-label="Accept call">
+          <span>📞</span>
+        </button>
+      </div>
+      <div className="call-incoming-labels">
+        <span>Decline</span>
+        <span>Accept</span>
+      </div>
+    </div>
   );
-              }
+}
+
+// ---------------------------------------------------------------------
+// Active call — full-screen remote video/avatar with local PiP + controls.
+// ---------------------------------------------------------------------
+function ActiveCallOverlay({ call, remoteStreams, localStream, muted, videoOff, onLeave, onToggleMute, onToggleVideo }) {
+  const { currentUser } = useAuth();
+  const otherUid = (call.participants || []).find((u) => u !== currentUser.uid);
+  const profile = useUserProfile(otherUid);
+  const remoteStream = remoteStreams[otherUid];
+
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const [startedAt] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (localVideoRef.current) localVideoRef.current.srcObject = localStream || null;
+  }, [localStream]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream || null;
+  }, [remoteStream]);
+
+  const isVideoCall = call.callType === 'video';
+  const remoteHasVideo = isVideoCall && !!remoteStream;
+
+  return (
+    <div className="call-overlay call-overlay-active">
+      {remoteHasVideo ? (
+        <video ref={remoteVideoRef} className="call-remote-video" autoPlay playsInline />
+      ) : (
+        <div className="call-remote-audio-bg">
+          <Avatar profile={profile} size={140} />
+        </div>
+      )}
+
+      <div className="call-active-header">
+        <h2 className="call-caller-name">{profile.name || 'DistilleryHub member'}</h2>
+        <CallTimer startedAt={startedAt} />
+      </div>
+
+      {isVideoCall && localStream && (
+        <video
+          ref={localVideoRef}
+          className={'call-local-video' + (videoOff ? ' call-local-video-off' : '')}
+          autoPlay
+          playsInline
+          muted
+        />
+      )}
+
+      <div className="call-active-controls">
+        <button
+          className={'call-control-btn' + (muted ? ' active' : '')}
+          onClick={onToggleMute}
+          aria-label="Toggle mute"
+        >
+          {muted ? '🔇' : '🎙️'}
+        </button>
+
+        {isVideoCall && (
+          <button
+            className={'call-control-btn' + (videoOff ? ' active' : '')}
+            onClick={onToggleVideo}
+            aria-label="Toggle camera"
+          >
+            {videoOff ? '📷' : '🎥'}
+          </button>
+        )}
+
+        <button className="call-btn call-btn-decline call-btn-end" onClick={onLeave} aria-label="End call">
+          <span>📞</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+export default function CallScreen() {
+  const {
+    activeCall, remoteStreams, localStream, muted, videoOff, incomingCall,
+    joinCall, leaveCall, declineCall, toggleMute, toggleVideo,
+  } = useCall();
+
+  if (activeCall) {
+    return (
+      <ActiveCallOverlay
+        call={activeCall}
+        remoteStreams={remoteStreams}
+        localStream={localStream}
+        muted={muted}
+        videoOff={videoOff}
+        onLeave={leaveCall}
+        onToggleMute={toggleMute}
+        onToggleVideo={toggleVideo}
+      />
+    );
+  }
+
+  if (incomingCall) {
+    return (
+      <IncomingCallOverlay
+        call={incomingCall}
+        onAccept={() => joinCall(incomingCall)}
+        onDecline={declineCall}
+      />
+    );
+  }
+
+  return null;
+}
