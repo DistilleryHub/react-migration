@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   collection, query, where, onSnapshot, addDoc, doc, updateDoc, serverTimestamp,
 } from 'firebase/firestore';
@@ -91,11 +92,11 @@ export default function Network() {
             if (!person) return null;
             return (
               <div className="person-row" key={conn.id}>
-                <div className="avatar">
+                <Link to={`/profile/${person.id}`} className="avatar">
                   {person.photoURL ? <img src={person.photoURL} alt="" /> : (person.name?.[0] || '?')}
-                </div>
+                </Link>
                 <div className="person-info">
-                  <div className="person-name">{person.name}</div>
+                  <Link to={`/profile/${person.id}`} className="person-name">{person.name}</Link>
                   <div className="person-headline">{person.headline}</div>
                 </div>
                 <button className="btn btn-primary btn-sm" onClick={() => acceptRequest(conn)}>Accept</button>
@@ -110,10 +111,10 @@ export default function Network() {
           const conn = connectionWith(person.id);
           return (
             <div className="card person-card" key={person.id}>
-              <div className="avatar avatar-lg">
+              <Link to={`/profile/${person.id}`} className="avatar avatar-lg">
                 {person.photoURL ? <img src={person.photoURL} alt="" /> : (person.name?.[0] || '?')}
-              </div>
-              <div className="person-name">{person.name}</div>
+              </Link>
+              <Link to={`/profile/${person.id}`} className="person-name">{person.name}</Link>
               {person.headline && <div className="person-headline">{person.headline}</div>}
               {person.company && <div className="person-company">{person.company}</div>}
               {!conn && (
