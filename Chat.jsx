@@ -24,9 +24,13 @@ export default function Chat() {
   const { currentUser } = useAuth();
   const [people, setPeople] = useState([]);
   const [connections, setConnections] = useState([]);
-  const [activePerson, setActivePerson] = useState(null);
+  const [groupChats, setGroupChats] = useState([]);
+  const [activeChat, setActiveChat] = useState(null); // { type:'direct', person } or { type:'group', chat }
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
+  const [showNewGroup, setShowNewGroup] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [selectedIds, setSelectedIds] = useState([]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'users'), (snap) => {
@@ -46,25 +50,45 @@ export default function Chat() {
     return () => { unsub1(); unsub2(); };
   }, [currentUser]);
 
+  useEffect(() => {
+    if (!currentUser) return;
+    const q = query(collection(db, 'chats'), where('participants', 'array-contains', currentUser.uid));
+    const unsub = onSnapshot(q, (snap) => {
+      const groups = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((c) => c.type === 'group');
+      groups.sort((a, b) => (b.lastMessageAt?.toMillis() || 0) - (a.lastMessageAt?.toMillis() || 0));
+      setGroupChats(groups);
+    });
+    return unsub;
+  }, [currentUser]);
+
   const connectedPeople = useMemo(() => {
     const otherIds = connections.map((c) => (c.from === currentUser?.uid ? c.to : c.from));
     return people.filter((p) => otherIds.includes(p.id));
   }, [connections, people, currentUser]);
 
   useEffect(() => {
-    if (!activePerson || !currentUser) return;
-    const chatId = chatIdFor(currentUser.uid, activePerson.id);
+    if (!activeChat || !currentUser) return;
+    const chatId = activeChat.type === 'direct'
+      ? chatIdFor(currentUser.uid, activeChat.person.id)
+      : activeChat.chat.id;
     const q = query(collection(db, 'chats', chatId, 'messages'), orderBy('createdAt', 'asc'));
     const unsub = onSnapshot(q, (snap) => {
       setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
     return unsub;
-  }, [activePerson, currentUser]);
+  }, [activeChat, currentUser]);
 
   async function sendMessage(e) {
     e.preventDefault();
-    if (!text.trim() || !activePerson) return;
-    const chatId = chatIdFor(currentUser.uid, activePerson.id);
+    if (!text.trim() || !activeChat) return;
+    const chatId = activeChat.type === 'direct'
+      ? chatIdFor(currentUser.uid, activeChat.person.id)
+      : activeChat.chat.id;
+    const participants = activeChat.type === 'direct'
+      ? [currentUser.uid, activeChat.person.id].sort()
+      : activeChat.chat.participants;
     const body = text.trim();
     setText('');
     await addDoc(collection(db, 'chats', chatId, 'messages'), {
@@ -73,21 +97,44 @@ export default function Chat() {
       createdAt: serverTimestamp(),
     });
     await setDoc(doc(db, 'chats', chatId), {
-      participants: [currentUser.uid, activePerson.id].sort(),
+      type: activeChat.type === 'group' ? 'group' : 'direct',
+      participants,
+      ...(activeChat.type === 'group' ? { name: activeChat.chat.name } : {}),
       lastMessage: body,
       lastMessageAt: serverTimestamp(),
     }, { merge: true });
   }
 
-  if (activePerson) {
+  async function createGroup(e) {
+    e.preventDefault();
+    if (!groupName.trim() || selectedIds.length === 0) return;
+    const ref = await addDoc(collection(db, 'chats'), {
+      type: 'group',
+      name: groupName.trim(),
+      participants: [...selectedIds, currentUser.uid],
+      createdBy: currentUser.uid,
+      lastMessage: '',
+      lastMessageAt: serverTimestamp(),
+    });
+    setGroupName(''); setSelectedIds([]); setShowNewGroup(false);
+    setActiveChat({ type: 'group', chat: { id: ref.id, name: groupName.trim(), participants: [...selectedIds, currentUser.uid] } });
+  }
+
+  function toggleSelect(id) {
+    setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  }
+
+  if (activeChat) {
+    const name = activeChat.type === 'direct' ? activeChat.person.name : activeChat.chat.name;
+    const photoURL = activeChat.type === 'direct' ? activeChat.person.photoURL : null;
     return (
       <div className="chat-thread">
         <div className="chat-thread-header">
-          <button className="btn btn-ghost btn-sm" onClick={() => setActivePerson(null)}>← Back</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setActiveChat(null)}>← Back</button>
           <div className="avatar">
-            {activePerson.photoURL ? <img src={activePerson.photoURL} alt="" /> : (activePerson.name?.[0] || '?')}
+            {photoURL ? <img src={photoURL} alt="" /> : (name?.[0] || '?')}
           </div>
-          <div className="chat-thread-name">{activePerson.name}</div>
+          <div className="chat-thread-name">{name}</div>
         </div>
         <div className="chat-messages">
           {messages.map((m) => (
@@ -112,11 +159,50 @@ export default function Chat() {
 
   return (
     <div className="chat-page">
+      <div className="card">
+        <button className="btn btn-primary btn-sm" onClick={() => setShowNewGroup((v) => !v)}>
+          {showNewGroup ? 'Cancel' : 'New group chat'}
+        </button>
+      </div>
+
+      {showNewGroup && (
+        <form className="card" onSubmit={createGroup}>
+          <div className="form-field">
+            <input type="text" placeholder="Group name" value={groupName} onChange={(e) => setGroupName(e.target.value)} />
+          </div>
+          <div className="group-select-list">
+            {connectedPeople.map((p) => (
+              <label key={p.id} className="group-select-item">
+                <input type="checkbox" checked={selectedIds.includes(p.id)} onChange={() => toggleSelect(p.id)} />
+                {p.name}
+              </label>
+            ))}
+          </div>
+          <button type="submit" className="btn btn-primary btn-block" style={{ marginTop: 8 }}>Create group</button>
+        </form>
+      )}
+
+      {groupChats.length > 0 && (
+        <div className="card">
+          <h3>Groups</h3>
+          {groupChats.map((chat) => (
+            <div className="person-row" key={chat.id} onClick={() => setActiveChat({ type: 'group', chat })}>
+              <div className="avatar">👥</div>
+              <div className="person-info">
+                <div className="person-name">{chat.name}</div>
+                <div className="person-headline">{chat.lastMessage || 'No messages yet'}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <h3>Direct messages</h3>
       {connectedPeople.length === 0 && (
         <div className="empty-state">Connect with people in Network to start chatting.</div>
       )}
       {connectedPeople.map((person) => (
-        <div className="card person-row" key={person.id} onClick={() => setActivePerson(person)}>
+        <div className="card person-row" key={person.id} onClick={() => setActiveChat({ type: 'direct', person })}>
           <div className="avatar">
             {person.photoURL ? <img src={person.photoURL} alt="" /> : (person.name?.[0] || '?')}
           </div>
@@ -128,4 +214,4 @@ export default function Chat() {
       ))}
     </div>
   );
-}
+          }
