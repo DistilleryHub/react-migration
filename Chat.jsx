@@ -4,6 +4,7 @@ import {
 } from 'firebase/firestore';
 import { db, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from './firebase';
 import { useAuth } from './AuthContext';
+import { useCall } from './CallContext';
 
 function chatIdFor(uidA, uidB) {
   return [uidA, uidB].sort().join('_');
@@ -52,6 +53,7 @@ const QUICK_REPLIES = [
 
 export default function Chat() {
   const { currentUser } = useAuth();
+  const { startCall } = useCall();
   const [people, setPeople] = useState([]);
   const [connections, setConnections] = useState([]);
   const [groupChats, setGroupChats] = useState([]);
@@ -213,7 +215,7 @@ export default function Chat() {
         setUploading(true);
         try {
           const file = new File([blob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
-          const url = await uploadToCloudinary(file, 'video'); // Cloudinary treats audio under 'video' resource type
+          const url = await uploadToCloudinary(file, 'video');
           await sendRawMessage('🎤 Voice note', { attachmentType: 'voice', mediaUrl: url });
         } catch (err) {
           alert('Upload failed: ' + err.message);
@@ -252,6 +254,13 @@ export default function Chat() {
     setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }
 
+  function handleStartCall(callType) {
+    const others = activeChat.type === 'direct'
+      ? [activeChat.person.id]
+      : activeChat.chat.participants.filter((id) => id !== currentUser.uid);
+    startCall(others, callType);
+  }
+
   if (activeChat) {
     const name = activeChat.type === 'direct' ? activeChat.person.name : activeChat.chat.name;
     const photoURL = activeChat.type === 'direct' ? activeChat.person.photoURL : null;
@@ -263,6 +272,10 @@ export default function Chat() {
             {photoURL ? <img src={photoURL} alt="" /> : (name?.[0] || '?')}
           </div>
           <div className="chat-thread-name">{name}</div>
+          <div className="chat-call-actions">
+            <button className="chat-call-btn" onClick={() => handleStartCall('audio')} title="Voice call">📞</button>
+            <button className="chat-call-btn" onClick={() => handleStartCall('video')} title="Video call">📹</button>
+          </div>
         </div>
 
         <div className="chat-messages">
@@ -395,4 +408,4 @@ export default function Chat() {
       ))}
     </div>
   );
-                                }
+                  }
