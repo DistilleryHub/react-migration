@@ -66,3 +66,11 @@
 .status-tap-zone { position: absolute; top: 0; bottom: 0; width: 40%; }
 .status-tap-left { left: 0; }
 .status-tap-right { right: 0; }
+.avatar-xl { width: 96px; height: 96px; }
+.profile-header { text-align: center; }
+.profile-header h2 { margin: 8px 0 4px; }
+.comments-section { margin-top: 10px; border-top: 1px solid #eee; padding-top: 8px; }
+.comment-row { font-size: 14px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.comment-author { font-weight: 600; }
+.group-select-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; max-height: 160px; overflow-y: auto; }
+.group-select-item { display: flex; align-items: center; gap: 8px; font-size: 14px; }
