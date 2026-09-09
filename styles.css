@@ -518,3 +518,15 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
   .sidebar-brand { display: none; }
   .main-content { padding: 12px; }
   }
+/* ===== Notifications ===== */
+.notifications-header { display: flex; align-items: center; justify-content: space-between; }
+
+/* ===== Files ===== */
+.file-row { display: flex; align-items: center; gap: 12px; }
+.file-icon { font-size: 28px; flex-shrink: 0; }
+.file-info { flex: 1; min-width: 0; }
+.file-name { font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* ===== Learning / Courses ===== */
+.course-card { }
