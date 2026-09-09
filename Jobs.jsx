@@ -1,11 +1,140 @@
+import { useEffect, useMemo, useState } from 'react';
+import {
+  collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc,
+  updateDoc, arrayUnion, arrayRemove, serverTimestamp,
+} from 'firebase/firestore';
+import { db } from './firebase';
+import { useAuth } from './AuthContext';
+import { useToast } from './ToastContext';
+
 export default function Jobs() {
+  const { currentUser, currentProfile } = useAuth();
+  const toast = useToast();
+  const [jobs, setJobs] = useState([]);
+  const [search, setSearch] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ title: '', company: '', location: '', description: '' });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const q = query(collection(db, 'jobs'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      setJobs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+    return unsub;
+  }, []);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!form.title.trim() || !form.company.trim()) return;
+    setSaving(true);
+    try {
+      await addDoc(collection(db, 'jobs'), {
+        ...form,
+        postedBy: currentUser.uid,
+        postedByName: currentProfile?.name || 'Member',
+        applicants: [],
+        createdAt: serverTimestamp(),
+      });
+      setForm({ title: '', company: '', location: '', description: '' });
+      setShowForm(false);
+      toast('Job posted');
+    } catch (err) {
+      toast(err.message || 'Could not post job');
+    }
+    setSaving(false);
+  }
+
+  async function toggleApply(job) {
+    const applied = job.applicants?.includes(currentUser.uid);
+    await updateDoc(doc(db, 'jobs', job.id), {
+      applicants: applied ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid),
+    });
+    toast(applied ? 'Application withdrawn' : 'Applied');
+  }
+
+  async function removeJob(job) {
+    if (job.postedBy !== currentUser.uid) return;
+    if (!confirm('Delete this job posting?')) return;
+    await deleteDoc(doc(db, 'jobs', job.id));
+  }
+
+  const visibleJobs = useMemo(() => {
+    if (!search.trim()) return jobs;
+    const s = search.toLowerCase();
+    return jobs.filter((j) =>
+      j.title?.toLowerCase().includes(s) ||
+      j.company?.toLowerCase().includes(s) ||
+      j.location?.toLowerCase().includes(s)
+    );
+  }, [jobs, search]);
+
   return (
-    <div className="page-stub">
-      <h1>Jobs</h1>
-      <p>
-        Ye page abhi placeholder hai — old app.js/index.html ke Jobs
-        feature ka React version Phase 3 me migrate hoga.
-      </p>
+    <div className="jobs-page">
+      <div className="card">
+        <input
+          type="text"
+          placeholder="Search jobs by title, company, or location..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <button className="btn btn-primary btn-sm" style={{ marginTop: 8 }} onClick={() => setShowForm((v) => !v)}>
+          {showForm ? 'Cancel' : 'Post a job'}
+        </button>
+      </div>
+
+      {showForm && (
+        <form className="card" onSubmit={handleSubmit}>
+          <div className="form-field">
+            <input type="text" placeholder="Job title" value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          </div>
+          <div className="form-field">
+            <input type="text" placeholder="Company" value={form.company}
+              onChange={(e) => setForm({ ...form, company: e.target.value })} />
+          </div>
+          <div className="form-field">
+            <input type="text" placeholder="Location" value={form.location}
+              onChange={(e) => setForm({ ...form, location: e.target.value })} />
+          </div>
+          <div className="form-field">
+            <textarea placeholder="Description" rows={4} value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </div>
+          <button type="submit" className="btn btn-primary btn-block" disabled={saving}>
+            {saving ? <span className="spinner" /> : 'Post job'}
+          </button>
+        </form>
+      )}
+
+      {visibleJobs.length === 0 && <div className="empty-state">No jobs found.</div>}
+
+      {visibleJobs.map((job) => {
+        const applied = job.applicants?.includes(currentUser.uid);
+        return (
+          <div className="card job-card" key={job.id}>
+            <div className="job-title">{job.title}</div>
+            <div className="job-meta">{job.company}{job.location ? ` • ${job.location}` : ''}</div>
+            {job.description && <p className="job-description">{job.description}</p>}
+            <div className="job-footer">
+              <span className="job-posted-by">Posted by {job.postedByName}</span>
+              {job.postedBy === currentUser.uid ? (
+                <div className="job-actions">
+                  <span className="job-applicants">{job.applicants?.length || 0} applicants</span>
+                  <button className="btn btn-ghost btn-sm" onClick={() => removeJob(job)}>Delete</button>
+                </div>
+              ) : (
+                <button
+                  className={'btn btn-sm ' + (applied ? 'btn-ghost' : 'btn-primary')}
+                  onClick={() => toggleApply(job)}
+                >
+                  {applied ? 'Applied ✓' : 'Apply'}
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
