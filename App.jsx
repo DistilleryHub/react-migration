@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import { useAuth } from './AuthContext.jsx';
 import { CallProvider } from './CallContext.jsx';
@@ -17,20 +18,25 @@ import Chat from './Chat.jsx';
 import Admin from './Admin.jsx';
 import Profile from './Profile.jsx';
 import Search from './Search.jsx';
+import Settings from './Settings.jsx';
 
-const NAV_ITEMS = [
-  { to: '/', label: 'Feed', end: true },
-  { to: '/search', label: 'Search' },
-  { to: '/network', label: 'Network' },
-  { to: '/jobs', label: 'Jobs' },
-  { to: '/articles', label: 'Articles' },
-  { to: '/status', label: 'Status' },
-  { to: '/market', label: 'Marketplace' },
-  { to: '/videos', label: 'Videos' },
-  { to: '/files', label: 'Files' },
-  { to: '/learning', label: 'Learning' },
-  { to: '/notifications', label: 'Notifications' },
-  { to: '/chat', label: 'Chat' },
+const PRIMARY_NAV = [
+  { to: '/', label: 'Feed', icon: '🏠', end: true },
+  { to: '/search', label: 'Search', icon: '🔍' },
+  { to: '/network', label: 'Network', icon: '👥' },
+  { to: '/jobs', label: 'Jobs', icon: '💼' },
+  { to: '/chat', label: 'Chat', icon: '💬' },
+  { to: '/notifications', label: 'Notifications', icon: '🔔' },
+];
+
+const MORE_NAV = [
+  { to: '/articles', label: 'Articles', icon: '📰' },
+  { to: '/status', label: 'Status', icon: '⭐' },
+  { to: '/market', label: 'Marketplace', icon: '🛒' },
+  { to: '/videos', label: 'Videos', icon: '▶️' },
+  { to: '/files', label: 'Files', icon: '📁' },
+  { to: '/learning', label: 'Learning', icon: '🎓' },
+  { to: '/settings', label: 'Settings', icon: '⚙️' },
 ];
 
 function RequireAuth({ children }) {
@@ -41,6 +47,7 @@ function RequireAuth({ children }) {
 
 export default function App() {
   const { currentUser, currentProfile, authLoading, logout } = useAuth();
+  const [showMore, setShowMore] = useState(false);
 
   if (authLoading) {
     return (
@@ -63,27 +70,60 @@ export default function App() {
             <CallProvider>
               <div className="app-shell">
                 <aside className="sidebar">
-                  <div className="sidebar-brand">DistilleryHub</div>
+                  <div className="sidebar-brand">
+                    <span className="sidebar-brand-icon">🥃</span> DistilleryHub
+                  </div>
                   <nav>
-                    {NAV_ITEMS.map((item) => (
+                    {PRIMARY_NAV.map((item) => (
                       <NavLink
                         key={item.to}
                         to={item.to}
                         end={item.end}
                         className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}
                       >
-                        {item.label}
+                        <span className="sidebar-link-icon">{item.icon}</span>
+                        <span className="sidebar-link-text">{item.label}</span>
                       </NavLink>
                     ))}
+
+                    <button
+                      type="button"
+                      className={'sidebar-link sidebar-more-toggle' + (showMore ? ' active' : '')}
+                      onClick={() => setShowMore((v) => !v)}
+                    >
+                      <span className="sidebar-link-icon">{showMore ? '✕' : '⋯'}</span>
+                      <span className="sidebar-link-text">{showMore ? 'Close' : 'More'}</span>
+                    </button>
+
+                    {showMore && MORE_NAV.map((item) => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        onClick={() => setShowMore(false)}
+                        className={({ isActive }) => 'sidebar-link sidebar-sublink' + (isActive ? ' active' : '')}
+                      >
+                        <span className="sidebar-link-icon">{item.icon}</span>
+                        <span className="sidebar-link-text">{item.label}</span>
+                      </NavLink>
+                    ))}
+
                     {currentProfile?.isAdmin && (
                       <NavLink to="/admin" className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
-                        Admin
+                        <span className="sidebar-link-icon">🛡️</span>
+                        <span className="sidebar-link-text">Admin</span>
                       </NavLink>
                     )}
                   </nav>
                   <div className="sidebar-footer">
                     <NavLink to={`/profile/${currentUser?.uid}`} className="sidebar-user" style={{ textDecoration: 'none' }}>
-                      {currentProfile?.name || 'Member'}
+                      {currentProfile?.photoURL ? (
+                        <img className="sidebar-user-avatar" src={currentProfile.photoURL} alt="" />
+                      ) : (
+                        <span className="sidebar-user-avatar sidebar-user-avatar-fallback">
+                          {currentProfile?.name?.[0] || '?'}
+                        </span>
+                      )}
+                      <span>{currentProfile?.name || 'Member'}</span>
                     </NavLink>
                     <button className="btn btn-ghost btn-sm btn-block" onClick={logout}>
                       Sign out
@@ -106,6 +146,7 @@ export default function App() {
                     <Route path="/chat" element={<Chat />} />
                     <Route path="/admin" element={<Admin />} />
                     <Route path="/profile/:uid" element={<Profile />} />
+                    <Route path="/settings" element={<Settings />} />
                   </Routes>
                 </main>
               </div>
