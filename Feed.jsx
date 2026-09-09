@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc,
   updateDoc, arrayUnion, arrayRemove, serverTimestamp,
@@ -20,6 +21,53 @@ function timeAgo(ts) {
   return ts.toDate().toLocaleDateString();
 }
 
+function Comments({ postId, currentUser, currentProfile }) {
+  const [comments, setComments] = useState([]);
+  const [text, setText] = useState('');
+
+  useEffect(() => {
+    const q = query(collection(db, 'posts', postId, 'comments'), orderBy('createdAt', 'asc'));
+    const unsub = onSnapshot(q, (snap) => {
+      setComments(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+    return unsub;
+  }, [postId]);
+
+  async function addComment(e) {
+    e.preventDefault();
+    if (!text.trim()) return;
+    await addDoc(collection(db, 'posts', postId, 'comments'), {
+      authorId: currentUser.uid,
+      authorName: currentProfile?.name || 'Member',
+      text: text.trim(),
+      createdAt: serverTimestamp(),
+    });
+    setText('');
+  }
+
+  async function removeComment(c) {
+    if (c.authorId !== currentUser.uid) return;
+    await deleteDoc(doc(db, 'posts', postId, 'comments', c.id));
+  }
+
+  return (
+    <div className="comments-section">
+      {comments.map((c) => (
+        <div className="comment-row" key={c.id}>
+          <span className="comment-author">{c.authorName}</span> {c.text}
+          {c.authorId === currentUser.uid && (
+            <button className="btn btn-ghost btn-sm" onClick={() => removeComment(c)}>✕</button>
+          )}
+        </div>
+      ))}
+      <form className="chat-input-row" onSubmit={addComment}>
+        <input type="text" placeholder="Write a comment..." value={text} onChange={(e) => setText(e.target.value)} />
+        <button type="submit" className="btn btn-primary btn-sm">Send</button>
+      </form>
+    </div>
+  );
+}
+
 export default function Feed() {
   const { currentUser, currentProfile } = useAuth();
   const toast = useToast();
@@ -28,6 +76,7 @@ export default function Feed() {
   const [image, setImage] = useState(null);
   const [preview, setPreview] = useState('');
   const [posting, setPosting] = useState(false);
+  const [openComments, setOpenComments] = useState(null);
 
   useEffect(() => {
     const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'));
@@ -135,11 +184,11 @@ export default function Feed() {
       {posts.map((post) => (
         <div className="card post" key={post.id}>
           <div className="post-header">
-            <div className="avatar">
+            <Link to={`/profile/${post.authorId}`} className="avatar">
               {post.authorPhotoURL ? <img src={post.authorPhotoURL} alt="" /> : (post.authorName?.[0] || '?')}
-            </div>
+            </Link>
             <div className="post-author">
-              <div className="post-author-name">{post.authorName}</div>
+              <Link to={`/profile/${post.authorId}`} className="post-author-name">{post.authorName}</Link>
               {post.authorHeadline && <div className="post-author-headline">{post.authorHeadline}</div>}
               <div className="post-time">{timeAgo(post.createdAt)}</div>
             </div>
@@ -157,9 +206,19 @@ export default function Feed() {
             >
               👍 {post.likes?.length || 0}
             </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setOpenComments(openComments === post.id ? null : post.id)}
+            >
+              💬 Comments
+            </button>
           </div>
+          {openComments === post.id && (
+            <Comments postId={post.id} currentUser={currentUser} currentProfile={currentProfile} />
+          )}
         </div>
       ))}
     </div>
   );
-}
+          }
