@@ -39,11 +39,23 @@ export default function Network() {
     await addDoc(collection(db, 'connections'), {
       from: currentUser.uid, to: person.id, status: 'pending', createdAt: serverTimestamp(),
     });
+    await addDoc(collection(db, 'notifications'), {
+      toUserId: person.id,
+      message: `${currentProfile?.name || 'Someone'} sent you a connection request`,
+      read: false,
+      createdAt: serverTimestamp(),
+    });
     toast(`Request sent to ${person.name}`);
   }
 
   async function acceptRequest(conn) {
     await updateDoc(doc(db, 'connections', conn.id), { status: 'accepted' });
+    await addDoc(collection(db, 'notifications'), {
+      toUserId: conn.from,
+      message: `${currentProfile?.name || 'Someone'} accepted your connection request`,
+      read: false,
+      createdAt: serverTimestamp(),
+    });
   }
 
   const visiblePeople = useMemo(() => {
