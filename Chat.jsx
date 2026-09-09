@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import {
   collection, query, where, orderBy, onSnapshot, addDoc, doc, setDoc, serverTimestamp,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from './firebase';
 import { useAuth } from './AuthContext';
 
 function chatIdFor(uidA, uidB) {
@@ -18,6 +18,19 @@ function timeAgo(ts) {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h`;
   return `${Math.floor(hrs / 24)}d`;
+}
+
+async function uploadToCloudinary(file, resourceType = 'auto') {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+  const res = await fetch(
+    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`,
+    { method: 'POST', body: formData }
+  );
+  if (!res.ok) throw new Error('Upload failed');
+  const data = await res.json();
+  return data.secure_url;
 }
 
 const ATTACH_OPTIONS = [
@@ -50,7 +63,11 @@ export default function Chat() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [showAttach, setShowAttach] = useState(false);
   const [showQuickReplies, setShowQuickReplies] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [recording, setRecording] = useState(false);
   const fileInputRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'users'), (snap) => {
@@ -150,23 +167,70 @@ export default function Chat() {
         attachmentType: 'profile',
         sharedUid: currentUser.uid,
       });
-    } else if (key === 'photo' || key === 'video' || key === 'document') {
-      fileInputRef.current?.setAttribute('accept',
-        key === 'photo' ? 'image/*' : key === 'video' ? 'video/*' : '*/*');
-      fileInputRef.current?.setAttribute('data-kind', key);
-      fileInputRef.current?.click();
+    } else if (key === 'photo') {
+      fileInputRef.current.setAttribute('accept', 'image/*');
+      fileInputRef.current.setAttribute('data-kind', 'photo');
+      fileInputRef.current.click();
+    } else if (key === 'video') {
+      fileInputRef.current.setAttribute('accept', 'video/*');
+      fileInputRef.current.setAttribute('data-kind', 'video');
+      fileInputRef.current.click();
+    } else if (key === 'document') {
+      fileInputRef.current.setAttribute('accept', '.pdf,.doc,.docx,.xls,.xlsx,.txt');
+      fileInputRef.current.setAttribute('data-kind', 'document');
+      fileInputRef.current.click();
     } else if (key === 'voice') {
-      alert('Voice notes need microphone recording + Firebase Storage — not wired up yet.');
+      startRecording();
     }
   }
 
-  function handleFileChosen(e) {
+  async function handleFileChosen(e) {
     const file = e.target.files?.[0];
     const kind = e.target.getAttribute('data-kind');
     e.target.value = '';
     if (!file) return;
-    // NOTE: actual upload requires Firebase Storage — not yet configured.
-    alert(`"${file.name}" selected. File/${kind} upload needs Firebase Storage setup — ask to wire this up.`);
+    setUploading(true);
+    try {
+      const resourceType = kind === 'photo' ? 'image' : kind === 'video' ? 'video' : 'raw';
+      const url = await uploadToCloudinary(file, resourceType);
+      const icon = kind === 'photo' ? '🖼️' : kind === 'video' ? '▶️' : '📄';
+      await sendRawMessage(`${icon} ${file.name}`, { attachmentType: kind, mediaUrl: url });
+    } catch (err) {
+      alert('Upload failed: ' + err.message);
+    }
+    setUploading(false);
+  }
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => audioChunksRef.current.push(e.data);
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setUploading(true);
+        try {
+          const file = new File([blob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
+          const url = await uploadToCloudinary(file, 'video'); // Cloudinary treats audio under 'video' resource type
+          await sendRawMessage('🎤 Voice note', { attachmentType: 'voice', mediaUrl: url });
+        } catch (err) {
+          alert('Upload failed: ' + err.message);
+        }
+        setUploading(false);
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+    } catch (err) {
+      alert('Microphone access denied or unavailable.');
+    }
+  }
+
+  function stopRecording() {
+    mediaRecorderRef.current?.stop();
+    setRecording(false);
   }
 
   async function createGroup(e) {
@@ -204,11 +268,33 @@ export default function Chat() {
         <div className="chat-messages">
           {messages.map((m) => (
             <div key={m.id} className={'chat-bubble' + (m.senderId === currentUser.uid ? ' mine' : '')}>
-              <div>{m.text}</div>
+              {m.attachmentType === 'photo' && m.mediaUrl && (
+                <img src={m.mediaUrl} alt="" className="chat-media-img" />
+              )}
+              {m.attachmentType === 'video' && m.mediaUrl && (
+                <video src={m.mediaUrl} controls className="chat-media-video" />
+              )}
+              {m.attachmentType === 'voice' && m.mediaUrl && (
+                <audio src={m.mediaUrl} controls className="chat-media-audio" />
+              )}
+              {m.attachmentType === 'document' && m.mediaUrl && (
+                <a href={m.mediaUrl} target="_blank" rel="noreferrer" className="chat-media-doc">{m.text}</a>
+              )}
+              {(!m.attachmentType || m.attachmentType === 'location' || m.attachmentType === 'profile') && (
+                <div>{m.text}</div>
+              )}
               <div className="chat-bubble-time">{timeAgo(m.createdAt)}</div>
             </div>
           ))}
+          {uploading && <div className="chat-bubble mine chat-bubble-uploading">Uploading…</div>}
         </div>
+
+        {recording && (
+          <div className="recording-bar">
+            <span className="recording-dot" /> Recording voice note…
+            <button className="btn btn-sm btn-primary" onClick={stopRecording}>Stop &amp; Send</button>
+          </div>
+        )}
 
         {showQuickReplies && (
           <div className="quick-reply-row">
@@ -309,4 +395,4 @@ export default function Chat() {
       ))}
     </div>
   );
-                     }
+                                }
