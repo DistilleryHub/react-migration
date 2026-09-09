@@ -12,7 +12,7 @@ export default function Learning() {
   const toast = useToast();
   const [courses, setCourses] = useState([]);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ title: '', resourceURL: '', description: '' });
+  const [form, setForm] = useState({ title: '', link: '', description: '' });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -35,11 +35,11 @@ export default function Learning() {
         completedBy: [],
         createdAt: serverTimestamp(),
       });
-      setForm({ title: '', resourceURL: '', description: '' });
+      setForm({ title: '', link: '', description: '' });
       setShowForm(false);
-      toast('Resource added');
+      toast('Course added');
     } catch (err) {
-      toast(err.message || 'Could not add resource');
+      toast(err.message || 'Could not add course');
     }
     setSaving(false);
   }
@@ -53,7 +53,7 @@ export default function Learning() {
 
   async function removeCourse(course) {
     if (course.addedBy !== currentUser.uid) return;
-    if (!confirm('Delete this resource?')) return;
+    if (!confirm('Delete this course?')) return;
     await deleteDoc(doc(db, 'courses', course.id));
   }
 
@@ -61,7 +61,7 @@ export default function Learning() {
     <div className="learning-page">
       <div className="card">
         <button className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? 'Cancel' : 'Add a learning resource'}
+          {showForm ? 'Cancel' : '+ Add course / resource'}
         </button>
       </div>
 
@@ -72,8 +72,8 @@ export default function Learning() {
               onChange={(e) => setForm({ ...form, title: e.target.value })} />
           </div>
           <div className="form-field">
-            <input type="text" placeholder="Link (course, article, video...)" value={form.resourceURL}
-              onChange={(e) => setForm({ ...form, resourceURL: e.target.value })} />
+            <input type="text" placeholder="Link (course URL, PDF, etc.)" value={form.link}
+              onChange={(e) => setForm({ ...form, link: e.target.value })} />
           </div>
           <div className="form-field">
             <textarea placeholder="Description" rows={2} value={form.description}
@@ -90,28 +90,33 @@ export default function Learning() {
       {courses.map((course) => {
         const done = course.completedBy?.includes(currentUser.uid);
         return (
-          <div className="card" key={course.id}>
+          <div className="card course-card" key={course.id}>
             <div className="job-title">{course.title}</div>
             <div className="job-meta">added by {course.addedByName}</div>
             {course.description && <p className="job-description">{course.description}</p>}
             <div className="job-footer">
-              {course.resourceURL && (
-                <a className="btn btn-ghost btn-sm" href={course.resourceURL} target="_blank" rel="noreferrer">
-                  Open resource
-                </a>
-              )}
               <div className="job-actions">
+                {course.link && (
+                  <a href={course.link} target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm">
+                    Open resource
+                  </a>
+                )}
                 <button
-                  className={'btn btn-sm ' + (done ? 'btn-ghost' : 'btn-primary')}
+                  className={'btn btn-sm' + (done ? ' btn-primary' : ' btn-ghost')}
                   onClick={() => toggleComplete(course)}
                 >
-                  {done ? 'Completed ✓' : 'Mark complete'}
+                  {done ? '✓ Completed' : 'Mark complete'}
                 </button>
-                {course.addedBy === currentUser.uid && (
-                  <button className="btn btn-ghost btn-sm" onClick={() => removeCourse(course)}>Delete</button>
-                )}
+              </div>
+              <div className="job-applicants">
+                {course.completedBy?.length || 0} completed
               </div>
             </div>
+            {course.addedBy === currentUser.uid && (
+              <button className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={() => removeCourse(course)}>
+                Delete
+              </button>
+            )}
           </div>
         );
       })}
