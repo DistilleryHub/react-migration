@@ -93,7 +93,9 @@ function IncomingCallOverlay({ call, onAccept, onDecline }) {
 // ---------------------------------------------------------------------
 // Active call — full-screen remote video/avatar with local PiP + controls.
 // ---------------------------------------------------------------------
-function ActiveCallOverlay({ call, remoteStreams, localStream, muted, videoOff, onLeave, onToggleMute, onToggleVideo }) {
+function ActiveCallOverlay({
+  call, remoteStreams, localStream, muted, videoOff, onLeave, onToggleMute, onToggleVideo, onSwitchCamera,
+}) {
   const { currentUser } = useAuth();
   const otherUid = (call.participants || []).find((u) => u !== currentUser.uid);
   const profile = useUserProfile(otherUid);
@@ -101,6 +103,7 @@ function ActiveCallOverlay({ call, remoteStreams, localStream, muted, videoOff, 
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const remoteAudioRef = useRef(null);
   const [startedAt] = useState(() => Date.now());
 
   useEffect(() => {
@@ -111,13 +114,26 @@ function ActiveCallOverlay({ call, remoteStreams, localStream, muted, videoOff, 
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream || null;
   }, [remoteStream]);
 
+  // Remote AUDIO always plays through this dedicated <audio> element,
+  // regardless of call type or whether a video track exists yet. Previously
+  // sound only came through the <video> tag, which meant audio-only calls
+  // (and video calls before the remote camera frame arrived) had no sound
+  // at all — this fixes that.
+  useEffect(() => {
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remoteStream || null;
+  }, [remoteStream]);
+
   const isVideoCall = call.callType === 'video';
-  const remoteHasVideo = isVideoCall && !!remoteStream;
+  const remoteHasVideo = isVideoCall && !!remoteStream && remoteStream.getVideoTracks().length > 0;
 
   return (
     <div className="call-overlay call-overlay-active">
+      {/* Always mounted, handles all remote sound. Video element below is
+          always muted so the audio track never plays twice. */}
+      <audio ref={remoteAudioRef} autoPlay />
+
       {remoteHasVideo ? (
-        <video ref={remoteVideoRef} className="call-remote-video" autoPlay playsInline />
+        <video ref={remoteVideoRef} className="call-remote-video" autoPlay playsInline muted />
       ) : (
         <div className="call-remote-audio-bg">
           <Avatar profile={profile} size={140} />
@@ -158,6 +174,16 @@ function ActiveCallOverlay({ call, remoteStreams, localStream, muted, videoOff, 
           </button>
         )}
 
+        {isVideoCall && (
+          <button
+            className="call-control-btn"
+            onClick={onSwitchCamera}
+            aria-label="Switch front/back camera"
+          >
+            🔄
+          </button>
+        )}
+
         <button className="call-btn call-btn-decline call-btn-end" onClick={onLeave} aria-label="End call">
           <span>📞</span>
         </button>
@@ -170,7 +196,7 @@ function ActiveCallOverlay({ call, remoteStreams, localStream, muted, videoOff, 
 export default function CallScreen() {
   const {
     activeCall, remoteStreams, localStream, muted, videoOff, incomingCall,
-    joinCall, leaveCall, declineCall, toggleMute, toggleVideo,
+    joinCall, leaveCall, declineCall, toggleMute, toggleVideo, switchCamera,
   } = useCall();
 
   if (activeCall) {
@@ -184,6 +210,7 @@ export default function CallScreen() {
         onLeave={leaveCall}
         onToggleMute={toggleMute}
         onToggleVideo={toggleVideo}
+        onSwitchCamera={switchCamera}
       />
     );
   }
