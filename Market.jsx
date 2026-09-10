@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, updateDoc,
+  collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, updateDoc, where,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from './firebase';
@@ -24,9 +24,10 @@ function timeAgo(ts) {
 }
 
 // -----------------------------------------------------------------------
-// RFQ bids — shown expanded inside an RFQ card. Firestore rules restrict
-// reads so only the buyer sees every bid; a seller only ever gets their
-// own bid back from this same query (others are filtered out server-side).
+// RFQ bids — shown expanded inside an RFQ card. Buyers query all bids for
+// the RFQ (allowed by rules since they own the parent doc); sellers query
+// only their own bid (where sellerId == their uid) since Firestore rejects
+// the *entire* list query if a rule would deny even one candidate document.
 // -----------------------------------------------------------------------
 function RfqBids({ rfq, currentUser, currentProfile, toast }) {
   const [bids, setBids] = useState([]);
@@ -37,12 +38,14 @@ function RfqBids({ rfq, currentUser, currentProfile, toast }) {
   const myBid = bids.find((b) => b.sellerId === currentUser.uid);
 
   useEffect(() => {
-    const q = query(collection(db, 'rfqs', rfq.id, 'bids'), orderBy('createdAt', 'asc'));
+    const q = isBuyer
+      ? query(collection(db, 'rfqs', rfq.id, 'bids'), orderBy('createdAt', 'asc'))
+      : query(collection(db, 'rfqs', rfq.id, 'bids'), where('sellerId', '==', currentUser.uid));
     const unsub = onSnapshot(q, (snap) => {
       setBids(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
     return unsub;
-  }, [rfq.id]);
+  }, [rfq.id, isBuyer, currentUser.uid]);
 
   async function submitBid(e) {
     e.preventDefault();
