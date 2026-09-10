@@ -19,6 +19,8 @@ import Admin from './Admin.jsx';
 import Profile from './Profile.jsx';
 import Search from './Search.jsx';
 import Settings from './Settings.jsx';
+import Groups from './Groups.jsx';
+import GroupDetail from './GroupDetail.jsx';
 
 // Full desktop sidebar (unchanged behaviour, still used on wide screens)
 const PRIMARY_NAV = [
@@ -31,6 +33,7 @@ const PRIMARY_NAV = [
 ];
 
 const MORE_NAV = [
+  { to: '/groups', label: 'Groups', icon: '🧑‍🤝‍🧑' },
   { to: '/articles', label: 'Articles', icon: '📰' },
   { to: '/status', label: 'Status', icon: '⭐' },
   { to: '/market', label: 'Marketplace', icon: '🛒' },
@@ -51,6 +54,7 @@ const BOTTOM_NAV = [
 ];
 
 const BOTTOM_MORE = [
+  { to: '/groups', label: 'Groups', icon: '🧑‍🤝‍🧑' },
   { to: '/search', label: 'Search', icon: '🔍' },
   { to: '/jobs', label: 'Jobs', icon: '💼' },
   { to: '/articles', label: 'Articles', icon: '📰' },
@@ -178,6 +182,8 @@ export default function App() {
                   <Routes>
                     <Route path="/" element={<Feed />} />
                     <Route path="/search" element={<Search />} />
+                    <Route path="/groups" element={<Groups />} />
+                    <Route path="/groups/:groupId" element={<GroupDetail />} />
                     <Route path="/network" element={<Network />} />
                     <Route path="/jobs" element={<Jobs />} />
                     <Route path="/articles" element={<Articles />} />
