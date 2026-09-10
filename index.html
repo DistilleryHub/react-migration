@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b1420">
+<meta name="description" content="DistilleryHub — professional social network for distillery, ethanol, laboratory and plant professionals.">
+<title>DistilleryHub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<!-- styles.css is now imported inside src/main.jsx instead of linked here,
+     so Vite bundles/hashes it and hot-reloads it in dev -->
+<link rel="manifest" href="/react-migration/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DistilleryHub">
+<link rel="apple-touch-icon" href="/react-migration/icon-192.png">
+<script type="text/javascript">
+  // Companion decode step for the 404.html GitHub Pages SPA redirect trick.
+  // Runs before React Router mounts and restores the real deep-link path
+  // (e.g. /react-migration/chat) so a refresh on any route works.
+  (function (l) {
+    if (l.search[1] === '/') {
+      var decoded = l.search.slice(1).split('&').map(function (s) {
+        return s.replace(/~and~/g, '&');
+      }).join('?');
+      window.history.replaceState(null, null, l.pathname.slice(0, -1) + decoded + l.hash);
+    }
+  }(window.location));
+</script>
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="/src/main.jsx"></script>
+</body>
+</html>
