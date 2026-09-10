@@ -29,8 +29,11 @@ async function uploadToCloudinary(file, resourceType = 'auto') {
     `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`,
     { method: 'POST', body: formData }
   );
-  if (!res.ok) throw new Error('Upload failed');
-  const data = await res.json();
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const reason = data?.error?.message || `HTTP ${res.status}`;
+    throw new Error(reason);
+  }
   return data.secure_url;
 }
 
@@ -408,4 +411,4 @@ export default function Chat() {
       ))}
     </div>
   );
-                  }
+                         }
