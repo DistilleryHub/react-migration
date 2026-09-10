@@ -135,12 +135,6 @@ export default function Chat() {
   async function sendRawMessage(body, extra = {}) {
     if (!body.trim() && !extra.mediaUrl) return;
     const { chatId, participants } = getChatMeta();
-    await addDoc(collection(db, 'chats', chatId, 'messages'), {
-      senderId: currentUser.uid,
-      text: body,
-      createdAt: serverTimestamp(),
-      ...extra,
-    });
     await setDoc(doc(db, 'chats', chatId), {
       type: activeChat.type === 'group' ? 'group' : 'direct',
       participants,
@@ -148,6 +142,12 @@ export default function Chat() {
       lastMessage: body || `[${extra.attachmentType || 'attachment'}]`,
       lastMessageAt: serverTimestamp(),
     }, { merge: true });
+    await addDoc(collection(db, 'chats', chatId, 'messages'), {
+      senderId: currentUser.uid,
+      text: body,
+      createdAt: serverTimestamp(),
+      ...extra,
+    });
   }
 
   async function sendMessage(e) {
@@ -411,4 +411,4 @@ export default function Chat() {
       ))}
     </div>
   );
-                         }
+        }
