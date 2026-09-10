@@ -31,6 +31,11 @@ export default function Admin() {
     toast(user.disabled ? `${user.name} unblocked` : `${user.name} blocked`);
   }
 
+  async function toggleVerified(user) {
+    await updateDoc(doc(db, 'users', user.id), { isVerified: !user.isVerified });
+    toast(user.isVerified ? `${user.name} unverified` : `${user.name} verified`);
+  }
+
   async function resolveReport(report) {
     await updateDoc(doc(db, 'reports', report.id), { status: 'resolved' });
   }
@@ -77,16 +82,26 @@ export default function Admin() {
           </div>
           <div className="person-info">
             <div className="person-name">
-              {user.name} {user.isAdmin && <span className="badge">ADMIN</span>}
+              {user.name}
+              {user.isAdmin && <span className="badge">ADMIN</span>}
+              {user.isVerified && <span className="verified-badge" title="Verified professional">✔️</span>}
             </div>
             <div className="person-headline">{user.headline}</div>
           </div>
-          <button
-            className={'btn btn-sm ' + (user.disabled ? 'btn-primary' : 'btn-ghost')}
-            onClick={() => toggleDisabled(user)}
-          >
-            {user.disabled ? 'Unblock' : 'Block'}
-          </button>
+          <div className="admin-user-actions">
+            <button
+              className={'btn btn-sm ' + (user.isVerified ? 'btn-primary' : 'btn-ghost')}
+              onClick={() => toggleVerified(user)}
+            >
+              {user.isVerified ? 'Unverify' : 'Verify'}
+            </button>
+            <button
+              className={'btn btn-sm ' + (user.disabled ? 'btn-primary' : 'btn-ghost')}
+              onClick={() => toggleDisabled(user)}
+            >
+              {user.disabled ? 'Unblock' : 'Block'}
+            </button>
+          </div>
         </div>
       ))}
     </div>
