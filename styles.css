@@ -889,3 +889,77 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
   .settings-tab { white-space: nowrap; }
   .settings-tab-label { display: none; }
 }
+/* ===== Settings (tabbed) ===== */
+.settings-title { margin-bottom: 16px; }
+.settings-layout { display: flex; gap: 20px; align-items: flex-start; }
+
+.settings-tabs {
+  width: 220px; flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 8px;
+}
+.settings-tab {
+  display: flex; align-items: center; gap: 10px;
+  background: none; border: none; text-align: left;
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  color: var(--muted); font-size: 13.5px; font-weight: 500; cursor: pointer;
+}
+.settings-tab:hover { background: var(--card-hover); color: var(--text); }
+.settings-tab.active { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
+.settings-tab-icon { font-size: 15px; }
+
+.settings-panel { flex: 1; min-width: 0; }
+.settings-section {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 22px;
+}
+.settings-section h2 { font-size: 18px; margin-bottom: 16px; }
+.settings-subheading { margin-top: 24px; font-size: 15px; }
+.danger-zone-heading { color: var(--danger); }
+.danger-zone { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+
+.settings-form { display: flex; flex-direction: column; gap: 14px; }
+.settings-field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--muted); font-weight: 500; }
+.settings-field input, .settings-field textarea { width: 100%; }
+.settings-static-field { font-size: 14px; color: var(--text); margin: 10px 0; }
+
+.settings-toggle-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 0; border-bottom: 1px solid var(--border); cursor: pointer;
+}
+.settings-toggle-row:last-child { border-bottom: none; }
+.settings-toggle-text { display: flex; flex-direction: column; gap: 2px; }
+.settings-toggle-label { font-weight: 500; font-size: 14px; }
+.settings-toggle-hint { font-size: 12px; color: var(--muted); }
+.settings-toggle-input {
+  width: 42px; height: 24px; appearance: none; background: var(--border);
+  border-radius: 999px; position: relative; cursor: pointer; flex-shrink: 0;
+  transition: background 0.2s ease;
+}
+.settings-toggle-input::before {
+  content: ''; position: absolute; top: 3px; left: 3px;
+  width: 18px; height: 18px; background: #fff; border-radius: 50%;
+  transition: transform 0.2s ease;
+}
+.settings-toggle-input:checked { background: var(--primary); }
+.settings-toggle-input:checked::before { transform: translateX(18px); }
+
+.settings-select-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 0; border-bottom: 1px solid var(--border); gap: 12px;
+}
+.settings-select-row:last-child { border-bottom: none; }
+.settings-select { min-width: 160px; }
+
+.btn-secondary { background: var(--card-hover); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover { background: var(--border); }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger:hover { background: #d63f52; }
+
+@media (max-width: 768px) {
+  .settings-layout { flex-direction: column; }
+  .settings-tabs { width: 100%; flex-direction: row; overflow-x: auto; }
+  .settings-tab-label { display: none; }
+  .settings-tab { padding: 10px; }
+}
