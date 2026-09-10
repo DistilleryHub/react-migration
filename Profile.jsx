@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   collection, query, where, orderBy, onSnapshot, doc, updateDoc,
   addDoc, serverTimestamp,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from './firebase';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 
@@ -17,6 +17,9 @@ export default function Profile() {
   const [connections, setConnections] = useState([]);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef(null);
   const isOwn = uid === currentUser?.uid;
 
   useEffect(() => {
@@ -82,14 +85,69 @@ export default function Profile() {
     toast('Profile updated');
   }
 
+  function handlePhotoPick(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow picking the same file again later
+    if (!file || !isOwn) return;
+    uploadPhoto(file);
+  }
+
+  async function uploadPhoto(file) {
+    const localUrl = URL.createObjectURL(file);
+    setPhotoPreview(localUrl);
+    setUploadingPhoto(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+      const res = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+        { method: 'POST', body: form }
+      );
+      const data = await res.json();
+      if (!data.secure_url) throw new Error('Photo upload failed');
+      await updateDoc(doc(db, 'users', uid), { photoURL: data.secure_url });
+      toast('Profile photo updated');
+    } catch (err) {
+      toast(err.message || 'Could not update photo');
+    } finally {
+      setUploadingPhoto(false);
+      setPhotoPreview('');
+      URL.revokeObjectURL(localUrl);
+    }
+  }
+
   if (!profile) return <div className="empty-state">Loading…</div>;
+
+  const avatarSrc = photoPreview || profile.photoURL;
 
   return (
     <div className="profile-page">
       <div className="card profile-header">
-        <div className="avatar avatar-xl">
-          {profile.photoURL ? <img src={profile.photoURL} alt="" /> : (profile.name?.[0] || '?')}
+        <div
+          className={'avatar avatar-xl profile-avatar-wrap' + (isOwn ? ' profile-avatar-editable' : '')}
+          onClick={() => isOwn && !uploadingPhoto && photoInputRef.current?.click()}
+          role={isOwn ? 'button' : undefined}
+          aria-label={isOwn ? 'Change profile photo' : undefined}
+        >
+          {avatarSrc ? <img src={avatarSrc} alt="" /> : (profile.name?.[0] || '?')}
+
+          {isOwn && (
+            <span className="profile-avatar-edit-badge">
+              {uploadingPhoto ? <span className="spinner" /> : '✏️'}
+            </span>
+          )}
         </div>
+        {isOwn && (
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={handlePhotoPick}
+          />
+        )}
+
         {!editing ? (
           <>
             <h2>{profile.name}</h2>
