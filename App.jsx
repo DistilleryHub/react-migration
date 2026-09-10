@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
+import { Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext.jsx';
 import { CallProvider } from './CallContext.jsx';
 import CallScreen from './CallScreen.jsx';
@@ -20,6 +20,7 @@ import Profile from './Profile.jsx';
 import Search from './Search.jsx';
 import Settings from './Settings.jsx';
 
+// Full desktop sidebar (unchanged behaviour, still used on wide screens)
 const PRIMARY_NAV = [
   { to: '/', label: 'Feed', icon: '🏠', end: true },
   { to: '/search', label: 'Search', icon: '🔍' },
@@ -39,6 +40,27 @@ const MORE_NAV = [
   { to: '/settings', label: 'Settings', icon: '⚙️' },
 ];
 
+// Mobile bottom nav — Feed, Chat, Status, Network, Notifications.
+// Only 5 fit comfortably in a fixed bar, the rest live behind "More".
+const BOTTOM_NAV = [
+  { to: '/', label: 'Feed', icon: '🏠', end: true },
+  { to: '/chat', label: 'Chat', icon: '💬' },
+  { to: '/status', label: 'Status', icon: '⭐' },
+  { to: '/network', label: 'Network', icon: '👥' },
+  { to: '/notifications', label: 'Notifications', icon: '🔔' },
+];
+
+const BOTTOM_MORE = [
+  { to: '/search', label: 'Search', icon: '🔍' },
+  { to: '/jobs', label: 'Jobs', icon: '💼' },
+  { to: '/articles', label: 'Articles', icon: '📰' },
+  { to: '/market', label: 'Marketplace', icon: '🛒' },
+  { to: '/videos', label: 'Videos', icon: '▶️' },
+  { to: '/files', label: 'Files', icon: '📁' },
+  { to: '/learning', label: 'Learning', icon: '🎓' },
+  { to: '/settings', label: 'Settings', icon: '⚙️' },
+];
+
 function RequireAuth({ children }) {
   const { currentUser } = useAuth();
   if (!currentUser) return <Navigate to="/auth" replace />;
@@ -48,6 +70,8 @@ function RequireAuth({ children }) {
 export default function App() {
   const { currentUser, currentProfile, authLoading, logout } = useAuth();
   const [showMore, setShowMore] = useState(false);
+  const [showMobileSheet, setShowMobileSheet] = useState(false);
+  const navigate = useNavigate();
 
   if (authLoading) {
     return (
@@ -69,6 +93,7 @@ export default function App() {
           <RequireAuth>
             <CallProvider>
               <div className="app-shell">
+                {/* ---------- Desktop sidebar (hidden on mobile via CSS) ---------- */}
                 <aside className="sidebar">
                   <div className="sidebar-brand">
                     <span className="sidebar-brand-icon">🥃</span> DistilleryHub
@@ -130,6 +155,25 @@ export default function App() {
                     </button>
                   </div>
                 </aside>
+
+                {/* ---------- Mobile top bar (hidden on desktop via CSS) ---------- */}
+                <header className="mobile-topbar">
+                  <span className="mobile-topbar-brand">🥃 DistilleryHub</span>
+                  <button
+                    type="button"
+                    className="mobile-topbar-avatar-btn"
+                    onClick={() => navigate(`/profile/${currentUser?.uid}`)}
+                  >
+                    {currentProfile?.photoURL ? (
+                      <img className="mobile-topbar-avatar" src={currentProfile.photoURL} alt="" />
+                    ) : (
+                      <span className="mobile-topbar-avatar mobile-topbar-avatar-fallback">
+                        {currentProfile?.name?.[0] || '?'}
+                      </span>
+                    )}
+                  </button>
+                </header>
+
                 <main className="main-content">
                   <Routes>
                     <Route path="/" element={<Feed />} />
@@ -149,6 +193,69 @@ export default function App() {
                     <Route path="/settings" element={<Settings />} />
                   </Routes>
                 </main>
+
+                {/* ---------- Mobile bottom nav (hidden on desktop via CSS) ---------- */}
+                <nav className="bottom-nav">
+                  {BOTTOM_NAV.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.end}
+                      className={({ isActive }) => 'bottom-nav-link' + (isActive ? ' active' : '')}
+                    >
+                      <span className="bottom-nav-icon">{item.icon}</span>
+                      <span className="bottom-nav-label">{item.label}</span>
+                    </NavLink>
+                  ))}
+                  <button
+                    type="button"
+                    className={'bottom-nav-link bottom-nav-more' + (showMobileSheet ? ' active' : '')}
+                    onClick={() => setShowMobileSheet((v) => !v)}
+                  >
+                    <span className="bottom-nav-icon">{showMobileSheet ? '✕' : '⋯'}</span>
+                    <span className="bottom-nav-label">More</span>
+                  </button>
+                </nav>
+
+                {/* ---------- Mobile "More" sheet ---------- */}
+                {showMobileSheet && (
+                  <>
+                    <div className="bottom-sheet-backdrop" onClick={() => setShowMobileSheet(false)} />
+                    <div className="bottom-sheet">
+                      <div className="bottom-sheet-grid">
+                        {BOTTOM_MORE.map((item) => (
+                          <NavLink
+                            key={item.to}
+                            to={item.to}
+                            onClick={() => setShowMobileSheet(false)}
+                            className="bottom-sheet-item"
+                          >
+                            <span className="bottom-sheet-icon">{item.icon}</span>
+                            <span className="bottom-sheet-label">{item.label}</span>
+                          </NavLink>
+                        ))}
+                        {currentProfile?.isAdmin && (
+                          <NavLink
+                            to="/admin"
+                            onClick={() => setShowMobileSheet(false)}
+                            className="bottom-sheet-item"
+                          >
+                            <span className="bottom-sheet-icon">🛡️</span>
+                            <span className="bottom-sheet-label">Admin</span>
+                          </NavLink>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm btn-block"
+                        style={{ marginTop: 12 }}
+                        onClick={() => { setShowMobileSheet(false); logout(); }}
+                      >
+                        Sign out
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
               <CallScreen />
             </CallProvider>
