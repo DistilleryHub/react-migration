@@ -3,7 +3,7 @@ import { doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { getAuth, sendPasswordResetEmail, deleteUser } from 'firebase/auth';
 import { db } from './firebase';
 import { useAuth } from './AuthContext';
-import { useToast } from './ToastContext'; // assumes: const { showToast } = useToast();
+import { useToast } from './ToastContext';
 import { useNavigate } from 'react-router-dom';
 
 const DEFAULT_SETTINGS = {
@@ -77,7 +77,7 @@ function Select({ label, value, onChange, options }) {
 
 export default function Settings() {
   const { currentUser, currentProfile, logout } = useAuth();
-  const { showToast } = useToast();
+  const toast = useToast();
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState('account');
@@ -109,7 +109,7 @@ export default function Settings() {
     try {
       await setDoc(doc(db, 'users', currentUser.uid), { settings: next }, { merge: true });
     } catch (err) {
-      showToast('Could not save setting. Try again.', 'error');
+      toast('Could not save setting. Try again.');
     }
   }
 
@@ -118,9 +118,9 @@ export default function Settings() {
     setSaving(true);
     try {
       await updateDoc(doc(db, 'users', currentUser.uid), { ...profileForm });
-      showToast('Profile updated', 'success');
+      toast('Profile updated');
     } catch (err) {
-      showToast('Could not update profile.', 'error');
+      toast('Could not update profile.');
     } finally {
       setSaving(false);
     }
@@ -129,9 +129,9 @@ export default function Settings() {
   async function handlePasswordReset() {
     try {
       await sendPasswordResetEmail(getAuth(), currentUser.email);
-      showToast('Password reset email sent', 'success');
+      toast('Password reset email sent');
     } catch (err) {
-      showToast('Could not send reset email.', 'error');
+      toast('Could not send reset email.');
     }
   }
 
@@ -139,10 +139,10 @@ export default function Settings() {
     if (!window.confirm('This will permanently delete your account. Continue?')) return;
     try {
       await deleteUser(getAuth().currentUser);
-      showToast('Account deleted', 'success');
+      toast('Account deleted');
       navigate('/auth');
     } catch (err) {
-      showToast('Could not delete account. You may need to sign in again first.', 'error');
+      toast('Could not delete account. You may need to sign in again first.');
     }
   }
 
@@ -152,9 +152,9 @@ export default function Settings() {
       Object.keys(window.localStorage)
         .filter((k) => !k.startsWith('firebase:'))
         .forEach((k) => window.localStorage.removeItem(k));
-      showToast('Local cache cleared', 'success');
+      toast('Local cache cleared');
     } catch (err) {
-      showToast('Could not clear cache.', 'error');
+      toast('Could not clear cache.');
     }
   }
 
@@ -432,4 +432,4 @@ export default function Settings() {
       </div>
     </div>
   );
-}
+      }
