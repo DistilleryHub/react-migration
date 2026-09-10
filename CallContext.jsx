@@ -24,6 +24,7 @@ export function CallProvider({ children }) {
   const [muted, setMuted] = useState(false);
   const [videoOff, setVideoOff] = useState(false);
   const [incomingCall, setIncomingCall] = useState(null);
+  const [facingMode, setFacingMode] = useState('user'); // 'user' = front, 'environment' = back
 
   const peersRef = useRef({});
   const localStreamRef = useRef(null);
@@ -150,7 +151,7 @@ export function CallProvider({ children }) {
     const allParticipants = [...new Set([currentUser.uid, ...participantUids])];
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: true,
-      video: callType === 'video',
+      video: callType === 'video' ? { facingMode } : false,
     });
     localStreamRef.current = stream;
     setLocalStream(stream);
@@ -171,12 +172,12 @@ export function CallProvider({ children }) {
     }
 
     await updateDoc(doc(db, 'calls', callRef.id), { status: 'active' });
-  }, [currentUser]);
+  }, [currentUser, facingMode]);
 
   const joinCall = useCallback(async (call) => {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: true,
-      video: call.callType === 'video',
+      video: call.callType === 'video' ? { facingMode } : false,
     });
     localStreamRef.current = stream;
     setLocalStream(stream);
@@ -188,7 +189,7 @@ export function CallProvider({ children }) {
     for (const uid of call.participants) {
       if (uid !== currentUser.uid) await connectToPeer(uid, call.id, call.callType);
     }
-  }, [currentUser]);
+  }, [currentUser, facingMode]);
 
   function endCallCleanup() {
     Object.values(peersRef.current).forEach((pc) => pc.close());
@@ -200,6 +201,7 @@ export function CallProvider({ children }) {
     setActiveCall(null);
     setMuted(false);
     setVideoOff(false);
+    setFacingMode('user');
     if (unsubSignalsRef.current) { unsubSignalsRef.current(); unsubSignalsRef.current = null; }
   }
 
@@ -234,12 +236,48 @@ export function CallProvider({ children }) {
     setVideoOff(next);
   }, [videoOff]);
 
+  // Flips between front ('user') and back ('environment') camera mid-call
+  // by requesting a fresh video track and swapping it into the local stream
+  // AND into every active RTCPeerConnection via replaceTrack — this does
+  // NOT renegotiate or drop the call, the remote side just sees the new feed.
+  const switchCamera = useCallback(async () => {
+    if (!localStreamRef.current) return;
+    const nextFacing = facingMode === 'user' ? 'environment' : 'user';
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: nextFacing },
+        audio: false,
+      });
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      if (!newVideoTrack) return;
+
+      const oldVideoTrack = localStreamRef.current.getVideoTracks()[0];
+      if (oldVideoTrack) {
+        localStreamRef.current.removeTrack(oldVideoTrack);
+        oldVideoTrack.stop();
+      }
+      localStreamRef.current.addTrack(newVideoTrack);
+      // new MediaStream wrapper so React sees a changed reference and re-attaches srcObject
+      setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+
+      Object.values(peersRef.current).forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+        if (sender) sender.replaceTrack(newVideoTrack);
+      });
+
+      setFacingMode(nextFacing);
+    } catch (e) {
+      // Device may only have one camera, or permission issue — fail silently,
+      // current camera keeps working.
+    }
+  }, [facingMode]);
+
   return (
     <CallContext.Provider value={{
-      activeCall, remoteStreams, localStream, muted, videoOff, incomingCall,
-      startCall, joinCall, leaveCall, declineCall, toggleMute, toggleVideo,
+      activeCall, remoteStreams, localStream, muted, videoOff, incomingCall, facingMode,
+      startCall, joinCall, leaveCall, declineCall, toggleMute, toggleVideo, switchCamera,
     }}>
       {children}
     </CallContext.Provider>
   );
-         }
+}
