@@ -2,9 +2,8 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { getMessaging, isSupported } from 'firebase/messaging';
 
-/* ---------------- Firebase config (distilleryhub-b1d2d project) ----------------
-   Same config as the old index.html — copied as-is, nothing changed here. */
 const firebaseConfig = {
   apiKey: "AIzaSyB63lPTtic1RUjfq-KXWrvtisSGIetXL6k",
   authDomain: "distilleryhub-b1d2d.firebaseapp.com",
@@ -22,3 +21,15 @@ export const fbApp = initializeApp(firebaseConfig);
 export const auth = getAuth(fbApp);
 export const db = getFirestore(fbApp);
 export const storage = getStorage(fbApp);
+
+// Firebase Console → Project Settings → Cloud Messaging → Web Push certificates
+export const VAPID_KEY = "PASTE_YOUR_VAPID_KEY_HERE";
+
+let messagingInstance = null;
+export async function getMessagingIfSupported() {
+  if (messagingInstance) return messagingInstance;
+  const supported = await isSupported().catch(() => false);
+  if (!supported) return null;
+  messagingInstance = getMessaging(fbApp);
+  return messagingInstance;
+}
