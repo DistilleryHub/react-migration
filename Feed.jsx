@@ -91,6 +91,12 @@ export default function Feed() {
     const file = e.target.files?.[0];
     if (!file) return;
     const type = file.type.startsWith('video') ? 'video' : 'image';
+    // Cloudinary free/unsigned uploads cap video around 100MB — warn early
+    if (type === 'video' && file.size > 100 * 1024 * 1024) {
+      toast('Video too large (max ~100MB)');
+      e.target.value = '';
+      return;
+    }
     setMedia(file);
     setMediaType(type);
     setPreview(URL.createObjectURL(file));
@@ -107,7 +113,11 @@ export default function Feed() {
       { method: 'POST', body: form }
     );
     const data = await res.json();
-    if (!data.secure_url) throw new Error('Media upload failed');
+    if (!data.secure_url) {
+      // Surface Cloudinary's actual error instead of a generic message
+      console.error('Cloudinary upload error:', data);
+      throw new Error(data?.error?.message || 'Media upload failed');
+    }
     return data.secure_url;
   }
 
@@ -147,8 +157,6 @@ export default function Feed() {
     });
   }
 
-  // Repost/Share: creates a new post in the current user's feed that references
-  // the original post, and bumps the original's share count.
   async function sharePost(post) {
     if (post.sharedFrom) {
       toast('Cannot reshare a shared post');
@@ -321,4 +329,4 @@ export default function Feed() {
       ))}
     </div>
   );
-}
+    }
