@@ -14,6 +14,12 @@ function getCtx() {
   return audioCtx;
 }
 
+// Exported so other parts of the call UI (e.g. active-speaker detection)
+// can reuse the same AudioContext instead of creating a new one each time.
+export function getSharedAudioContext() {
+  return getCtx();
+}
+
 function beep(ctx, freq, when, duration, volume) {
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
@@ -26,7 +32,6 @@ function beep(ctx, freq, when, duration, volume) {
   osc.stop(when + duration);
 }
 
-// Ringback tone — CALLER sunta hai jab tak doosra pick na kare.
 export function startRingback() {
   const ctx = getCtx();
   let stopped = false;
@@ -46,7 +51,6 @@ export function startRingback() {
   };
 }
 
-// Ringtone — CALLEE sunta hai jab incoming call aaye, + vibration.
 export function startRingtone() {
   const ctx = getCtx();
   let stopped = false;
