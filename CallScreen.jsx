@@ -4,7 +4,6 @@ import { db } from './firebase';
 import { useAuth } from './AuthContext';
 import { useCall } from './CallContext';
 
-// Small cache so we don't re-fetch the same user profile repeatedly during a call.
 const profileCache = {};
 
 function useUserProfile(uid) {
@@ -55,7 +54,7 @@ function CallTimer({ startedAt }) {
 }
 
 // ---------------------------------------------------------------------
-// Incoming call — full-screen ringing UI, WhatsApp style.
+// Incoming call — full-screen ringing UI (callee ki taraf)
 // ---------------------------------------------------------------------
 function IncomingCallOverlay({ call, onAccept, onDecline }) {
   const { currentUser } = useAuth();
@@ -91,7 +90,82 @@ function IncomingCallOverlay({ call, onAccept, onDecline }) {
 }
 
 // ---------------------------------------------------------------------
-// Active call — full-screen remote video/avatar with local PiP + controls.
+// Outgoing call — "Calling…" screen (caller ki taraf, jab tak accept na ho)
+// ---------------------------------------------------------------------
+function OutgoingCallOverlay({
+  call, localStream, muted, videoOff, onLeave, onToggleMute, onToggleVideo, onSwitchCamera,
+}) {
+  const { currentUser } = useAuth();
+  const otherUid = (call.participants || []).find((u) => u !== currentUser.uid);
+  const profile = useUserProfile(otherUid);
+  const localVideoRef = useRef(null);
+  const isVideoCall = call.callType === 'video';
+
+  useEffect(() => {
+    if (localVideoRef.current) localVideoRef.current.srcObject = localStream || null;
+  }, [localStream]);
+
+  return (
+    <div className="call-overlay call-overlay-outgoing">
+      {isVideoCall && localStream ? (
+        <video
+          ref={localVideoRef}
+          className={'call-remote-video' + (videoOff ? ' call-local-video-off' : '')}
+          autoPlay
+          playsInline
+          muted
+        />
+      ) : (
+        <div className="call-remote-audio-bg">
+          <Avatar profile={profile} size={140} />
+        </div>
+      )}
+
+      <div className="call-incoming-top">
+        <span className="call-type-label">
+          {isVideoCall ? 'Video calling…' : 'Calling…'}
+        </span>
+      </div>
+      <div className="call-active-header">
+        <h2 className="call-caller-name">{profile.name || 'DistilleryHub member'}</h2>
+        <p className="call-ringing-text">Ringing…</p>
+      </div>
+
+      <div className="call-active-controls">
+        <button
+          className={'call-control-btn' + (muted ? ' active' : '')}
+          onClick={onToggleMute}
+          aria-label="Toggle mute"
+        >
+          {muted ? '🔇' : '🎙️'}
+        </button>
+
+        {isVideoCall && (
+          <button
+            className={'call-control-btn' + (videoOff ? ' active' : '')}
+            onClick={onToggleVideo}
+            aria-label="Toggle camera"
+          >
+            {videoOff ? '📷' : '🎥'}
+          </button>
+        )}
+
+        {isVideoCall && (
+          <button className="call-control-btn" onClick={onSwitchCamera} aria-label="Switch front/back camera">
+            🔄
+          </button>
+        )}
+
+        <button className="call-btn call-btn-decline call-btn-end" onClick={onLeave} aria-label="Cancel call">
+          <span>📞</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// Active call — full-screen remote video/avatar with local PiP + controls
 // ---------------------------------------------------------------------
 function ActiveCallOverlay({
   call, remoteStreams, localStream, muted, videoOff, onLeave, onToggleMute, onToggleVideo, onSwitchCamera,
@@ -105,6 +179,7 @@ function ActiveCallOverlay({
   const remoteVideoRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const [startedAt] = useState(() => Date.now());
+  const [audioBlocked, setAudioBlocked] = useState(false);
 
   useEffect(() => {
     if (localVideoRef.current) localVideoRef.current.srcObject = localStream || null;
@@ -114,13 +189,18 @@ function ActiveCallOverlay({
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream || null;
   }, [remoteStream]);
 
-  // Remote AUDIO always plays through this dedicated <audio> element,
-  // regardless of call type or whether a video track exists yet. Previously
-  // sound only came through the <video> tag, which meant audio-only calls
-  // (and video calls before the remote camera frame arrived) had no sound
-  // at all — this fixes that.
+  // Remote AUDIO isi dedicated <audio> element se play hota hai. Sirf srcObject
+  // set karna kaafi nahi hota kai mobile browsers me — isliye .play() explicitly
+  // call kar rahe hain; agar browser block kare to "tap to enable sound" dikhega.
   useEffect(() => {
-    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remoteStream || null;
+    if (!remoteAudioRef.current) return;
+    remoteAudioRef.current.srcObject = remoteStream || null;
+    if (remoteStream) {
+      const playPromise = remoteAudioRef.current.play();
+      if (playPromise && playPromise.then) {
+        playPromise.then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true));
+      }
+    }
   }, [remoteStream]);
 
   const isVideoCall = call.callType === 'video';
@@ -128,9 +208,22 @@ function ActiveCallOverlay({
 
   return (
     <div className="call-overlay call-overlay-active">
-      {/* Always mounted, handles all remote sound. Video element below is
-          always muted so the audio track never plays twice. */}
       <audio ref={remoteAudioRef} autoPlay />
+
+      {audioBlocked && (
+        <button
+          onClick={() => {
+            remoteAudioRef.current?.play().then(() => setAudioBlocked(false)).catch(() => {});
+          }}
+          style={{
+            position: 'absolute', top: 70, left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(0,0,0,0.75)', color: '#fff', border: 'none',
+            borderRadius: 20, padding: '8px 16px', fontSize: 14, zIndex: 20,
+          }}
+        >
+          🔊 Tap to enable sound
+        </button>
+      )}
 
       {remoteHasVideo ? (
         <video ref={remoteVideoRef} className="call-remote-video" autoPlay playsInline muted />
@@ -199,6 +292,21 @@ export default function CallScreen() {
     joinCall, leaveCall, declineCall, toggleMute, toggleVideo, switchCamera,
   } = useCall();
 
+  if (activeCall && activeCall.status === 'ringing') {
+    return (
+      <OutgoingCallOverlay
+        call={activeCall}
+        localStream={localStream}
+        muted={muted}
+        videoOff={videoOff}
+        onLeave={leaveCall}
+        onToggleMute={toggleMute}
+        onToggleVideo={toggleVideo}
+        onSwitchCamera={switchCamera}
+      />
+    );
+  }
+
   if (activeCall) {
     return (
       <ActiveCallOverlay
@@ -226,4 +334,4 @@ export default function CallScreen() {
   }
 
   return null;
-}
+        }
