@@ -1,4 +1,4 @@
-const CACHE_NAME = 'distilleryhub-v1';
+const CACHE_NAME = 'distilleryhub-v2';
 const OFFLINE_URL = '/react-migration/';
 
 const PRECACHE_ASSETS = [
@@ -27,7 +27,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 
-  // Never cache Firebase/Firestore/Cloudinary API calls — always go to network
+  // Never touch Firebase/Firestore/Cloudinary API calls — always go straight to network
   if (
     request.url.includes('firestore.googleapis.com') ||
     request.url.includes('googleapis.com') ||
@@ -37,20 +37,47 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request)
-        .then((response) => {
-          if (request.method === 'GET' && response.ok) {
+  if (request.method !== 'GET') return;
+
+  const isStaticAsset =
+    request.destination === 'image' ||
+    request.destination === 'font' ||
+    request.url.includes('fonts.googleapis.com') ||
+    request.url.includes('fonts.gstatic.com');
+
+  if (isStaticAsset) {
+    // Cache-first: these rarely change, serve instantly from cache
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((response) => {
+          if (response.ok) {
             const clone = response.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
           }
           return response;
-        })
-        .catch(() => {
-          if (request.mode === 'navigate') return caches.match(OFFLINE_URL);
         });
-    })
+      })
+    );
+    return;
+  }
+
+  // Network-first: HTML, JS, CSS — always try to get the latest deploy.
+  // Falls back to cache only when offline.
+  event.respondWith(
+    fetch(request)
+      .then((response) => {
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+        }
+        return response;
+      })
+      .catch(() =>
+        caches.match(request).then((cached) => {
+          if (cached) return cached;
+          if (request.mode === 'navigate') return caches.match(OFFLINE_URL);
+        })
+      )
   );
 });
