@@ -5,6 +5,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { useAuth } from './AuthContext';
+import { startRingback, startRingtone } from './callSounds';
 
 const CallContext = createContext(null);
 export function useCall() { return useContext(CallContext); }
@@ -45,6 +46,9 @@ export function CallProvider({ children }) {
   const localStreamRef = useRef(null);
   const unsubSignalsRef = useRef(null);
   const activeCallRef = useRef(null);
+  const pendingCandidatesRef = useRef({}); // peerUid -> [candidate, ...] queued until remoteDescription is set
+  const ringbackStopRef = useRef(null);
+  const ringtoneStopRef = useRef(null);
 
   useEffect(() => { activeCallRef.current = activeCall; }, [activeCall]);
 
@@ -54,16 +58,56 @@ export function CallProvider({ children }) {
     const unsub = onSnapshot(q, (snap) => {
       snap.docChanges().forEach((change) => {
         const data = { id: change.doc.id, ...change.doc.data() };
+
+        // Naya incoming call — ringtone bajao (sirf jinhone call start nahi ki unke liye)
         if (change.type === 'added' && data.status === 'ringing' && data.initiatedBy !== currentUser.uid) {
           setIncomingCall(data);
+          if (!ringtoneStopRef.current) {
+            ringtoneStopRef.current = startRingtone();
+          }
         }
-        if (data.status === 'ended' && activeCallRef.current?.id === data.id) {
-          endCallCleanup();
+
+        // Doosre banda ne call accept kar li -> caller ki ringback band karo, UI active pe switch karo
+        if (change.type === 'modified' && activeCallRef.current?.id === data.id && data.status === 'active') {
+          setActiveCall((prev) => (prev ? { ...prev, status: 'active' } : prev));
+          if (ringbackStopRef.current) { ringbackStopRef.current(); ringbackStopRef.current = null; }
+        }
+
+        // Call khatam ho gayi (decline / hangup / dono me se koi bhi)
+        if (data.status === 'ended') {
+          if (activeCallRef.current?.id === data.id) {
+            endCallCleanup();
+          }
+          setIncomingCall((prev) => {
+            if (prev && prev.id === data.id) {
+              if (ringtoneStopRef.current) { ringtoneStopRef.current(); ringtoneStopRef.current = null; }
+              return null;
+            }
+            return prev;
+          });
         }
       });
     });
     return unsub;
   }, [currentUser]);
+
+  function queueCandidate(peerUid, candidate) {
+    if (!pendingCandidatesRef.current[peerUid]) pendingCandidatesRef.current[peerUid] = [];
+    pendingCandidatesRef.current[peerUid].push(candidate);
+  }
+
+  async function flushQueuedCandidates(peerUid, pc) {
+    const queued = pendingCandidatesRef.current[peerUid];
+    if (!queued || queued.length === 0) return;
+    pendingCandidatesRef.current[peerUid] = [];
+    for (const candidate of queued) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        console.error('DistilleryHub call: failed to add queued ICE candidate', e);
+      }
+    }
+  }
 
   function createPeerConnection(peerUid, callId) {
     const pc = new RTCPeerConnection(ICE_SERVERS);
@@ -140,6 +184,7 @@ export function CallProvider({ children }) {
         try {
           if (sig.kind === 'offer') {
             await pc.setRemoteDescription(new RTCSessionDescription(payload));
+            await flushQueuedCandidates(from, pc);
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             await addDoc(collection(db, 'calls', callId, 'signals'), {
@@ -151,10 +196,19 @@ export function CallProvider({ children }) {
             });
           } else if (sig.kind === 'answer') {
             await pc.setRemoteDescription(new RTCSessionDescription(payload));
+            await flushQueuedCandidates(from, pc);
           } else if (sig.kind === 'candidate') {
-            await pc.addIceCandidate(new RTCIceCandidate(payload));
+            // Agar remote description abhi set nahi hui, candidate ko queue me daalo —
+            // pehle ye silently drop/fail ho jata tha aur connection kabhi bijli nahi banti thi.
+            if (pc.remoteDescription && pc.remoteDescription.type) {
+              await pc.addIceCandidate(new RTCIceCandidate(payload));
+            } else {
+              queueCandidate(from, payload);
+            }
           }
-        } catch (e) { /* ignore stale signals */ }
+        } catch (e) {
+          console.error('DistilleryHub call: signal handling failed', sig.kind, e);
+        }
 
         deleteDoc(change.doc.ref).catch(() => {});
       });
@@ -179,17 +233,20 @@ export function CallProvider({ children }) {
       createdAt: serverTimestamp(),
     });
 
-    setActiveCall({ id: callRef.id, callType, participants: allParticipants });
+    // status 'ringing' pe rehta hai jab tak doosra accept na kare (joinCall me 'active' hota hai)
+    setActiveCall({ id: callRef.id, callType, participants: allParticipants, status: 'ringing' });
+    ringbackStopRef.current = startRingback();
+
     unsubSignalsRef.current = listenForSignals(callRef.id);
 
     for (const uid of allParticipants) {
       if (uid !== currentUser.uid) await connectToPeer(uid, callRef.id, callType);
     }
-
-    await updateDoc(doc(db, 'calls', callRef.id), { status: 'active' });
   }, [currentUser, facingMode]);
 
   const joinCall = useCallback(async (call) => {
+    if (ringtoneStopRef.current) { ringtoneStopRef.current(); ringtoneStopRef.current = null; }
+
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: true,
       video: call.callType === 'video' ? { facingMode } : false,
@@ -197,18 +254,22 @@ export function CallProvider({ children }) {
     localStreamRef.current = stream;
     setLocalStream(stream);
     setIncomingCall(null);
-    setActiveCall({ id: call.id, callType: call.callType, participants: call.participants });
+    setActiveCall({ id: call.id, callType: call.callType, participants: call.participants, status: 'active' });
 
     unsubSignalsRef.current = listenForSignals(call.id);
 
     for (const uid of call.participants) {
       if (uid !== currentUser.uid) await connectToPeer(uid, call.id, call.callType);
     }
+
+    // Caller ko batao ki call accept ho gayi — iske baad hi ringback rukegi
+    await updateDoc(doc(db, 'calls', call.id), { status: 'active' }).catch(() => {});
   }, [currentUser, facingMode]);
 
   function endCallCleanup() {
     Object.values(peersRef.current).forEach((pc) => pc.close());
     peersRef.current = {};
+    pendingCandidatesRef.current = {};
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
     setLocalStream(null);
@@ -218,6 +279,8 @@ export function CallProvider({ children }) {
     setVideoOff(false);
     setFacingMode('user');
     if (unsubSignalsRef.current) { unsubSignalsRef.current(); unsubSignalsRef.current = null; }
+    if (ringbackStopRef.current) { ringbackStopRef.current(); ringbackStopRef.current = null; }
+    if (ringtoneStopRef.current) { ringtoneStopRef.current(); ringtoneStopRef.current = null; }
   }
 
   const leaveCall = useCallback(async () => {
@@ -235,7 +298,25 @@ export function CallProvider({ children }) {
     endCallCleanup();
   }, [activeCall, currentUser]);
 
-  const declineCall = useCallback(() => setIncomingCall(null), []);
+  const declineCall = useCallback(async () => {
+    if (!incomingCall) return;
+    if (ringtoneStopRef.current) { ringtoneStopRef.current(); ringtoneStopRef.current = null; }
+    try {
+      const callRef = doc(db, 'calls', incomingCall.id);
+      const snap = await getDoc(callRef);
+      if (snap.exists()) {
+        const remaining = (snap.data().participants || []).filter((u) => u !== currentUser.uid);
+        if (remaining.length <= 1) {
+          await updateDoc(callRef, { status: 'ended' });
+        } else {
+          await updateDoc(callRef, { participants: arrayRemove(currentUser.uid) });
+        }
+      }
+    } catch (e) {
+      console.error('DistilleryHub call: decline failed', e);
+    }
+    setIncomingCall(null);
+  }, [incomingCall, currentUser]);
 
   const toggleMute = useCallback(() => {
     if (!localStreamRef.current) return;
@@ -251,10 +332,6 @@ export function CallProvider({ children }) {
     setVideoOff(next);
   }, [videoOff]);
 
-  // Flips between front ('user') and back ('environment') camera mid-call
-  // by requesting a fresh video track and swapping it into the local stream
-  // AND into every active RTCPeerConnection via replaceTrack — this does
-  // NOT renegotiate or drop the call, the remote side just sees the new feed.
   const switchCamera = useCallback(async () => {
     if (!localStreamRef.current) return;
     const nextFacing = facingMode === 'user' ? 'environment' : 'user';
@@ -272,7 +349,6 @@ export function CallProvider({ children }) {
         oldVideoTrack.stop();
       }
       localStreamRef.current.addTrack(newVideoTrack);
-      // new MediaStream wrapper so React sees a changed reference and re-attaches srcObject
       setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
 
       Object.values(peersRef.current).forEach((pc) => {
@@ -282,8 +358,7 @@ export function CallProvider({ children }) {
 
       setFacingMode(nextFacing);
     } catch (e) {
-      // Device may only have one camera, or permission issue — fail silently,
-      // current camera keeps working.
+      // Device me ek hi camera ho sakta hai — chup chaap fail, current camera chalta rahega.
     }
   }, [facingMode]);
 
@@ -295,4 +370,4 @@ export function CallProvider({ children }) {
       {children}
     </CallContext.Provider>
   );
-}
+              }
