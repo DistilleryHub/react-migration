@@ -3,6 +3,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { useAuth } from './AuthContext';
 import { useCall } from './CallContext';
+import { getSharedAudioContext } from './callSounds';
 
 const profileCache = {};
 
@@ -33,10 +34,7 @@ function Avatar({ profile, size = 96 }) {
       style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }}
     />
   ) : (
-    <div
-      className="call-avatar call-avatar-fallback"
-      style={{ width: size, height: size, borderRadius: '50%' }}
-    >
+    <div className="call-avatar call-avatar-fallback" style={{ width: size, height: size, borderRadius: '50%' }}>
       {initial}
     </div>
   );
@@ -53,13 +51,120 @@ function CallTimer({ startedAt }) {
   return <span className="call-timer">{mm}:{ss}</span>;
 }
 
+// Detects whether a MediaStream currently has audible sound, using the Web
+// Audio API's analyser node. Used to draw the "active speaker" highlight
+// ring around a tile in group calls. Threshold is tuned for normal speech
+// volume — background noise shouldn't trigger it, but this may need small
+// adjustment once tested on real devices.
+function useIsSpeaking(stream) {
+  const [speaking, setSpeaking] = useState(false);
+  useEffect(() => {
+    if (!stream || stream.getAudioTracks().length === 0) {
+      setSpeaking(false);
+      return;
+    }
+    let raf = null;
+    let source = null;
+    let analyser = null;
+    let cancelled = false;
+
+    try {
+      const ctx = getSharedAudioContext();
+      source = ctx.createMediaStreamSource(stream);
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+
+      const tick = () => {
+        if (cancelled) return;
+        analyser.getByteFrequencyData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) sum += data[i];
+        const avg = sum / data.length;
+        setSpeaking(avg > 14);
+        raf = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch (e) {
+      // Analyser unsupported / stream not ready yet — just skip the highlight.
+    }
+
+    return () => {
+      cancelled = true;
+      if (raf) cancelAnimationFrame(raf);
+      try { source && source.disconnect(); } catch (e) { /* ignore */ }
+      try { analyser && analyser.disconnect(); } catch (e) { /* ignore */ }
+    };
+  }, [stream]);
+  return speaking;
+}
+
+// Best-effort speaker/earpiece routing via setSinkId. Support varies a lot
+// by browser/OS (works on most desktop Chrome/Edge and some Android Chrome
+// versions; not available on iOS Safari at all) — this silently no-ops
+// where unsupported rather than breaking the call.
+async function applySinkId(audioEl, speakerOn) {
+  if (!audioEl || typeof audioEl.setSinkId !== 'function') return;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const outputs = devices.filter((d) => d.kind === 'audiooutput');
+    if (speakerOn) {
+      const speaker = outputs.find((d) => /speaker/i.test(d.label)) || outputs[0];
+      if (speaker) await audioEl.setSinkId(speaker.deviceId);
+    } else {
+      const earpiece = outputs.find((d) => /earpiece|receiver/i.test(d.label));
+      await audioEl.setSinkId(earpiece ? earpiece.deviceId : 'default');
+    }
+  } catch (e) {
+    // Not supported, or output-device permission not granted — ignore.
+  }
+}
+
 // ---------------------------------------------------------------------
-// Incoming call — full-screen ringing UI (callee ki taraf)
+// Shared bottom control bar — used by outgoing, 1-on-1, and group screens.
+// ---------------------------------------------------------------------
+function CallControlsBar({
+  isVideoCall, muted, videoOff, speakerOn,
+  onToggleMute, onToggleVideo, onSwitchCamera, onToggleSpeaker, onEnd, endLabel,
+}) {
+  return (
+    <div className="call-active-controls">
+      <button className={'call-control-btn' + (muted ? ' active' : '')} onClick={onToggleMute} aria-label="Toggle mute">
+        {muted ? '🔇' : '🎙️'}
+      </button>
+
+      <button className={'call-control-btn' + (speakerOn ? ' active' : '')} onClick={onToggleSpeaker} aria-label="Toggle speaker">
+        🔊
+      </button>
+
+      {isVideoCall && (
+        <button className={'call-control-btn' + (videoOff ? ' active' : '')} onClick={onToggleVideo} aria-label="Toggle camera">
+          {videoOff ? '📷' : '🎥'}
+        </button>
+      )}
+
+      {isVideoCall && (
+        <button className="call-control-btn" onClick={onSwitchCamera} aria-label="Switch front/back camera">
+          🔄
+        </button>
+      )}
+
+      <button className="call-btn call-btn-decline call-btn-end" onClick={onEnd} aria-label={endLabel || 'End call'}>
+        <span>📞</span>
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// Incoming call — full-screen ringing UI (callee's side)
 // ---------------------------------------------------------------------
 function IncomingCallOverlay({ call, onAccept, onDecline }) {
   const { currentUser } = useAuth();
   const otherUid = (call.participants || []).find((u) => u !== currentUser.uid);
   const profile = useUserProfile(otherUid);
+  const extraCount = (call.participants || []).length - 2; // -1 self, -1 shown caller
 
   return (
     <div className="call-overlay call-overlay-incoming">
@@ -70,16 +175,15 @@ function IncomingCallOverlay({ call, onAccept, onDecline }) {
       </div>
       <div className="call-incoming-center">
         <Avatar profile={profile} size={140} />
-        <h2 className="call-caller-name">{profile.name || 'DistilleryHub member'}</h2>
+        <h2 className="call-caller-name">
+          {profile.name || 'DistilleryHub member'}
+          {extraCount > 0 ? ` +${extraCount} more` : ''}
+        </h2>
         <p className="call-ringing-text">is calling…</p>
       </div>
       <div className="call-incoming-actions">
-        <button className="call-btn call-btn-decline" onClick={onDecline} aria-label="Decline call">
-          <span>📞</span>
-        </button>
-        <button className="call-btn call-btn-accept" onClick={onAccept} aria-label="Accept call">
-          <span>📞</span>
-        </button>
+        <button className="call-btn call-btn-decline" onClick={onDecline} aria-label="Decline call"><span>📞</span></button>
+        <button className="call-btn call-btn-accept" onClick={onAccept} aria-label="Accept call"><span>📞</span></button>
       </div>
       <div className="call-incoming-labels">
         <span>Decline</span>
@@ -90,16 +194,15 @@ function IncomingCallOverlay({ call, onAccept, onDecline }) {
 }
 
 // ---------------------------------------------------------------------
-// Outgoing call — "Calling…" screen (caller ki taraf, jab tak accept na ho)
+// Outgoing call — "Calling…" screen (caller's side, before pickup)
 // ---------------------------------------------------------------------
-function OutgoingCallOverlay({
-  call, localStream, muted, videoOff, onLeave, onToggleMute, onToggleVideo, onSwitchCamera,
-}) {
+function OutgoingCallOverlay({ call, localStream, muted, videoOff, speakerOn, onLeave, onToggleMute, onToggleVideo, onSwitchCamera, onToggleSpeaker }) {
   const { currentUser } = useAuth();
-  const otherUid = (call.participants || []).find((u) => u !== currentUser.uid);
-  const profile = useUserProfile(otherUid);
+  const otherUids = (call.participants || []).filter((u) => u !== currentUser.uid);
+  const profile = useUserProfile(otherUids[0]);
   const localVideoRef = useRef(null);
   const isVideoCall = call.callType === 'video';
+  const isGroup = otherUids.length > 1;
 
   useEffect(() => {
     if (localVideoRef.current) localVideoRef.current.srcObject = localStream || null;
@@ -108,103 +211,85 @@ function OutgoingCallOverlay({
   return (
     <div className="call-overlay call-overlay-outgoing">
       {isVideoCall && localStream ? (
-        <video
-          ref={localVideoRef}
-          className={'call-remote-video' + (videoOff ? ' call-local-video-off' : '')}
-          autoPlay
-          playsInline
-          muted
-        />
+        <video ref={localVideoRef} className={'call-remote-video' + (videoOff ? ' call-local-video-off' : '')} autoPlay playsInline muted />
       ) : (
-        <div className="call-remote-audio-bg">
-          <Avatar profile={profile} size={140} />
-        </div>
+        <div className="call-remote-audio-bg"><Avatar profile={profile} size={140} /></div>
       )}
 
       <div className="call-incoming-top">
-        <span className="call-type-label">
-          {isVideoCall ? 'Video calling…' : 'Calling…'}
-        </span>
+        <span className="call-type-label">{isVideoCall ? 'Video calling…' : 'Calling…'}</span>
       </div>
       <div className="call-active-header">
-        <h2 className="call-caller-name">{profile.name || 'DistilleryHub member'}</h2>
+        <h2 className="call-caller-name">
+          {isGroup ? `${profile.name || 'Member'} +${otherUids.length - 1} more` : (profile.name || 'DistilleryHub member')}
+        </h2>
         <p className="call-ringing-text">Ringing…</p>
       </div>
 
-      <div className="call-active-controls">
-        <button
-          className={'call-control-btn' + (muted ? ' active' : '')}
-          onClick={onToggleMute}
-          aria-label="Toggle mute"
-        >
-          {muted ? '🔇' : '🎙️'}
-        </button>
-
-        {isVideoCall && (
-          <button
-            className={'call-control-btn' + (videoOff ? ' active' : '')}
-            onClick={onToggleVideo}
-            aria-label="Toggle camera"
-          >
-            {videoOff ? '📷' : '🎥'}
-          </button>
-        )}
-
-        {isVideoCall && (
-          <button className="call-control-btn" onClick={onSwitchCamera} aria-label="Switch front/back camera">
-            🔄
-          </button>
-        )}
-
-        <button className="call-btn call-btn-decline call-btn-end" onClick={onLeave} aria-label="Cancel call">
-          <span>📞</span>
-        </button>
-      </div>
+      <CallControlsBar
+        isVideoCall={isVideoCall}
+        muted={muted}
+        videoOff={videoOff}
+        speakerOn={speakerOn}
+        onToggleMute={onToggleMute}
+        onToggleVideo={onToggleVideo}
+        onSwitchCamera={onSwitchCamera}
+        onToggleSpeaker={onToggleSpeaker}
+        onEnd={onLeave}
+        endLabel="Cancel call"
+      />
     </div>
   );
 }
 
 // ---------------------------------------------------------------------
-// Active call — full-screen remote video/avatar with local PiP + controls
+// 1-on-1 active call — full remote video + local PiP (tap PiP to swap)
 // ---------------------------------------------------------------------
-function ActiveCallOverlay({
-  call, remoteStreams, localStream, muted, videoOff, onLeave, onToggleMute, onToggleVideo, onSwitchCamera,
+function OneOnOneActiveLayout({
+  call, otherUid, remoteStreams, localStream, muted, videoOff, speakerOn,
+  onLeave, onToggleMute, onToggleVideo, onSwitchCamera, onToggleSpeaker,
 }) {
-  const { currentUser } = useAuth();
-  const otherUid = (call.participants || []).find((u) => u !== currentUser.uid);
   const profile = useUserProfile(otherUid);
   const remoteStream = remoteStreams[otherUid];
 
-  const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
+  const bigVideoRef = useRef(null);
+  const pipVideoRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const [startedAt] = useState(() => Date.now());
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const [pipIsLocal, setPipIsLocal] = useState(true); // true = local video is the small PiP (default)
+
+  const isVideoCall = call.callType === 'video';
+  const remoteHasVideo = isVideoCall && !!remoteStream && remoteStream.getVideoTracks().length > 0;
+
+  const bigStream = pipIsLocal ? remoteStream : localStream;
+  const pipStream = pipIsLocal ? localStream : remoteStream;
 
   useEffect(() => {
-    if (localVideoRef.current) localVideoRef.current.srcObject = localStream || null;
-  }, [localStream]);
+    if (bigVideoRef.current) bigVideoRef.current.srcObject = bigStream || null;
+  }, [bigStream]);
 
   useEffect(() => {
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream || null;
-  }, [remoteStream]);
+    if (pipVideoRef.current) pipVideoRef.current.srcObject = pipStream || null;
+  }, [pipStream]);
 
-  // Remote AUDIO isi dedicated <audio> element se play hota hai. Sirf srcObject
-  // set karna kaafi nahi hota kai mobile browsers me — isliye .play() explicitly
-  // call kar rahe hain; agar browser block kare to "tap to enable sound" dikhega.
+  // Remote audio always plays through this dedicated element, independent of
+  // which video (big or PiP) is currently showing the remote feed.
   useEffect(() => {
     if (!remoteAudioRef.current) return;
     remoteAudioRef.current.srcObject = remoteStream || null;
     if (remoteStream) {
-      const playPromise = remoteAudioRef.current.play();
-      if (playPromise && playPromise.then) {
-        playPromise.then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true));
-      }
+      const p = remoteAudioRef.current.play();
+      if (p && p.then) p.then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true));
     }
   }, [remoteStream]);
 
-  const isVideoCall = call.callType === 'video';
-  const remoteHasVideo = isVideoCall && !!remoteStream && remoteStream.getVideoTracks().length > 0;
+  useEffect(() => {
+    applySinkId(remoteAudioRef.current, speakerOn);
+  }, [speakerOn, remoteStream]);
+
+  const bigIsRemote = pipIsLocal;
+  const showBigVideo = isVideoCall && (bigIsRemote ? remoteHasVideo : !!localStream);
 
   return (
     <div className="call-overlay call-overlay-active">
@@ -212,25 +297,17 @@ function ActiveCallOverlay({
 
       {audioBlocked && (
         <button
-          onClick={() => {
-            remoteAudioRef.current?.play().then(() => setAudioBlocked(false)).catch(() => {});
-          }}
-          style={{
-            position: 'absolute', top: 70, left: '50%', transform: 'translateX(-50%)',
-            background: 'rgba(0,0,0,0.75)', color: '#fff', border: 'none',
-            borderRadius: 20, padding: '8px 16px', fontSize: 14, zIndex: 20,
-          }}
+          className="call-audio-unblock-btn"
+          onClick={() => { remoteAudioRef.current?.play().then(() => setAudioBlocked(false)).catch(() => {}); }}
         >
           🔊 Tap to enable sound
         </button>
       )}
 
-      {remoteHasVideo ? (
-        <video ref={remoteVideoRef} className="call-remote-video" autoPlay playsInline muted />
+      {showBigVideo ? (
+        <video ref={bigVideoRef} className="call-remote-video" autoPlay playsInline muted={!bigIsRemote} />
       ) : (
-        <div className="call-remote-audio-bg">
-          <Avatar profile={profile} size={140} />
-        </div>
+        <div className="call-remote-audio-bg"><Avatar profile={profile} size={140} /></div>
       )}
 
       <div className="call-active-header">
@@ -238,51 +315,118 @@ function ActiveCallOverlay({
         <CallTimer startedAt={startedAt} />
       </div>
 
-      {isVideoCall && localStream && (
-        <video
-          ref={localVideoRef}
-          className={'call-local-video' + (videoOff ? ' call-local-video-off' : '')}
-          autoPlay
-          playsInline
-          muted
-        />
+      {isVideoCall && pipStream && (
+        <button
+          className={'call-local-video-wrap' + (pipIsLocal && videoOff ? ' call-local-video-off' : '')}
+          onClick={() => setPipIsLocal((v) => !v)}
+          aria-label="Swap main and picture-in-picture video"
+        >
+          <video ref={pipVideoRef} className="call-local-video" autoPlay playsInline muted={pipIsLocal} />
+        </button>
       )}
 
-      <div className="call-active-controls">
-        <button
-          className={'call-control-btn' + (muted ? ' active' : '')}
-          onClick={onToggleMute}
-          aria-label="Toggle mute"
-        >
-          {muted ? '🔇' : '🎙️'}
-        </button>
+      <CallControlsBar
+        isVideoCall={isVideoCall}
+        muted={muted}
+        videoOff={videoOff}
+        speakerOn={speakerOn}
+        onToggleMute={onToggleMute}
+        onToggleVideo={onToggleVideo}
+        onSwitchCamera={onSwitchCamera}
+        onToggleSpeaker={onToggleSpeaker}
+        onEnd={onLeave}
+      />
+    </div>
+  );
+}
 
-        {isVideoCall && (
-          <button
-            className={'call-control-btn' + (videoOff ? ' active' : '')}
-            onClick={onToggleVideo}
-            aria-label="Toggle camera"
-          >
-            {videoOff ? '📷' : '🎥'}
-          </button>
-        )}
+// ---------------------------------------------------------------------
+// Group active call — grid of tiles, active speaker highlighted
+// ---------------------------------------------------------------------
+function ParticipantTile({ uid, stream, isLocal, isVideoCall, speakerOn }) {
+  const profile = useUserProfile(uid);
+  const videoRef = useRef(null);
+  const audioRef = useRef(null);
+  const speaking = useIsSpeaking(stream);
+  const hasVideo = isVideoCall && !!stream && stream.getVideoTracks().length > 0;
 
-        {isVideoCall && (
-          <button
-            className="call-control-btn"
-            onClick={onSwitchCamera}
-            aria-label="Switch front/back camera"
-          >
-            🔄
-          </button>
-        )}
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.srcObject = stream || null;
+  }, [stream]);
 
-        <button className="call-btn call-btn-decline call-btn-end" onClick={onLeave} aria-label="End call">
-          <span>📞</span>
-        </button>
+  // Remote tiles get their own dedicated <audio> element (same reliable
+  // pattern as the 1-on-1 layout); the local tile never plays its own audio.
+  useEffect(() => {
+    if (isLocal || !audioRef.current) return;
+    audioRef.current.srcObject = stream || null;
+    if (stream) audioRef.current.play().catch(() => {});
+  }, [stream, isLocal]);
+
+  useEffect(() => {
+    if (!isLocal) applySinkId(audioRef.current, speakerOn);
+  }, [speakerOn, isLocal, stream]);
+
+  return (
+    <div className={'call-grid-tile' + (speaking ? ' speaking' : '')}>
+      {!isLocal && <audio ref={audioRef} autoPlay />}
+      {hasVideo ? (
+        <video ref={videoRef} className="call-grid-video" autoPlay playsInline muted={isLocal} />
+      ) : (
+        <div className="call-grid-avatar-wrap"><Avatar profile={profile} size={64} /></div>
+      )}
+      <div className="call-grid-label">
+        <span>{isLocal ? 'You' : (profile.name || 'Member')}</span>
       </div>
     </div>
   );
+}
+
+function GroupActiveLayout({
+  call, otherUids, remoteStreams, localStream, muted, videoOff, speakerOn,
+  onLeave, onToggleMute, onToggleVideo, onSwitchCamera, onToggleSpeaker,
+}) {
+  const { currentUser } = useAuth();
+  const [startedAt] = useState(() => Date.now());
+  const isVideoCall = call.callType === 'video';
+
+  return (
+    <div className="call-overlay call-overlay-active call-overlay-group">
+      <div className="call-active-header call-active-header-group">
+        <h2 className="call-caller-name">Group call · {otherUids.length + 1}</h2>
+        <CallTimer startedAt={startedAt} />
+      </div>
+
+      <div className="call-grid">
+        <ParticipantTile uid={currentUser.uid} stream={localStream} isLocal isVideoCall={isVideoCall} speakerOn={speakerOn} />
+        {otherUids.map((uid) => (
+          <ParticipantTile key={uid} uid={uid} stream={remoteStreams[uid]} isLocal={false} isVideoCall={isVideoCall} speakerOn={speakerOn} />
+        ))}
+      </div>
+
+      <CallControlsBar
+        isVideoCall={isVideoCall}
+        muted={muted}
+        videoOff={videoOff}
+        speakerOn={speakerOn}
+        onToggleMute={onToggleMute}
+        onToggleVideo={onToggleVideo}
+        onSwitchCamera={onSwitchCamera}
+        onToggleSpeaker={onToggleSpeaker}
+        onEnd={onLeave}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+function ActiveCallOverlay(props) {
+  const { currentUser } = useAuth();
+  const otherUids = (props.call.participants || []).filter((u) => u !== currentUser.uid);
+
+  if (otherUids.length > 1) {
+    return <GroupActiveLayout {...props} otherUids={otherUids} />;
+  }
+  return <OneOnOneActiveLayout {...props} otherUid={otherUids[0]} />;
 }
 
 // ---------------------------------------------------------------------
@@ -292,6 +436,9 @@ export default function CallScreen() {
     joinCall, leaveCall, declineCall, toggleMute, toggleVideo, switchCamera,
   } = useCall();
 
+  const [speakerOn, setSpeakerOn] = useState(false);
+  const onToggleSpeaker = () => setSpeakerOn((v) => !v);
+
   if (activeCall && activeCall.status === 'ringing') {
     return (
       <OutgoingCallOverlay
@@ -299,10 +446,12 @@ export default function CallScreen() {
         localStream={localStream}
         muted={muted}
         videoOff={videoOff}
+        speakerOn={speakerOn}
         onLeave={leaveCall}
         onToggleMute={toggleMute}
         onToggleVideo={toggleVideo}
         onSwitchCamera={switchCamera}
+        onToggleSpeaker={onToggleSpeaker}
       />
     );
   }
@@ -315,23 +464,19 @@ export default function CallScreen() {
         localStream={localStream}
         muted={muted}
         videoOff={videoOff}
+        speakerOn={speakerOn}
         onLeave={leaveCall}
         onToggleMute={toggleMute}
         onToggleVideo={toggleVideo}
         onSwitchCamera={switchCamera}
+        onToggleSpeaker={onToggleSpeaker}
       />
     );
   }
 
   if (incomingCall) {
-    return (
-      <IncomingCallOverlay
-        call={incomingCall}
-        onAccept={() => joinCall(incomingCall)}
-        onDecline={declineCall}
-      />
-    );
+    return <IncomingCallOverlay call={incomingCall} onAccept={() => joinCall(incomingCall)} onDecline={declineCall} />;
   }
 
   return null;
-        }
+          }
