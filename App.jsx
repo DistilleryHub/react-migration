@@ -22,29 +22,9 @@ import Settings from './Settings.jsx';
 import Groups from './Groups.jsx';
 import GroupDetail from './GroupDetail.jsx';
 
-// Full desktop sidebar (unchanged behaviour, still used on wide screens)
-const PRIMARY_NAV = [
-  { to: '/', label: 'Feed', icon: '🏠', end: true },
-  { to: '/search', label: 'Search', icon: '🔍' },
-  { to: '/network', label: 'Network', icon: '👥' },
-  { to: '/jobs', label: 'Jobs', icon: '💼' },
-  { to: '/chat', label: 'Chat', icon: '💬' },
-  { to: '/notifications', label: 'Notifications', icon: '🔔' },
-];
-
-const MORE_NAV = [
-  { to: '/groups', label: 'Groups', icon: '🧑‍🤝‍🧑' },
-  { to: '/articles', label: 'Articles', icon: '📰' },
-  { to: '/status', label: 'Status', icon: '⭐' },
-  { to: '/market', label: 'Marketplace', icon: '🛒' },
-  { to: '/videos', label: 'Videos', icon: '▶️' },
-  { to: '/files', label: 'Files', icon: '📁' },
-  { to: '/learning', label: 'Learning', icon: '🎓' },
-  { to: '/settings', label: 'Settings', icon: '⚙️' },
-];
-
-// Mobile bottom nav — Feed, Chat, Status, Network, Notifications.
-// Only 5 fit comfortably in a fixed bar, the rest live behind "More".
+// Single nav bar used on every screen size — Feed, Chat, Status, Network,
+// Notifications. Only 5 fit comfortably in a fixed bottom bar, the rest
+// live behind "More".
 const BOTTOM_NAV = [
   { to: '/', label: 'Feed', icon: '🏠', end: true },
   { to: '/chat', label: 'Chat', icon: '💬' },
@@ -73,7 +53,6 @@ function RequireAuth({ children }) {
 
 export default function App() {
   const { currentUser, currentProfile, authLoading, logout } = useAuth();
-  const [showMore, setShowMore] = useState(false);
   const [showMobileSheet, setShowMobileSheet] = useState(false);
   const navigate = useNavigate();
 
@@ -97,70 +76,7 @@ export default function App() {
           <RequireAuth>
             <CallProvider>
               <div className="app-shell">
-                {/* ---------- Desktop sidebar (hidden on mobile via CSS) ---------- */}
-                <aside className="sidebar">
-                  <div className="sidebar-brand">
-                    <span className="sidebar-brand-icon">🥃</span> DistilleryHub
-                  </div>
-                  <nav>
-                    {PRIMARY_NAV.map((item) => (
-                      <NavLink
-                        key={item.to}
-                        to={item.to}
-                        end={item.end}
-                        className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}
-                      >
-                        <span className="sidebar-link-icon">{item.icon}</span>
-                        <span className="sidebar-link-text">{item.label}</span>
-                      </NavLink>
-                    ))}
-
-                    <button
-                      type="button"
-                      className={'sidebar-link sidebar-more-toggle' + (showMore ? ' active' : '')}
-                      onClick={() => setShowMore((v) => !v)}
-                    >
-                      <span className="sidebar-link-icon">{showMore ? '✕' : '⋯'}</span>
-                      <span className="sidebar-link-text">{showMore ? 'Close' : 'More'}</span>
-                    </button>
-
-                    {showMore && MORE_NAV.map((item) => (
-                      <NavLink
-                        key={item.to}
-                        to={item.to}
-                        onClick={() => setShowMore(false)}
-                        className={({ isActive }) => 'sidebar-link sidebar-sublink' + (isActive ? ' active' : '')}
-                      >
-                        <span className="sidebar-link-icon">{item.icon}</span>
-                        <span className="sidebar-link-text">{item.label}</span>
-                      </NavLink>
-                    ))}
-
-                    {currentProfile?.isAdmin && (
-                      <NavLink to="/admin" className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
-                        <span className="sidebar-link-icon">🛡️</span>
-                        <span className="sidebar-link-text">Admin</span>
-                      </NavLink>
-                    )}
-                  </nav>
-                  <div className="sidebar-footer">
-                    <NavLink to={`/profile/${currentUser?.uid}`} className="sidebar-user" style={{ textDecoration: 'none' }}>
-                      {currentProfile?.photoURL ? (
-                        <img className="sidebar-user-avatar" src={currentProfile.photoURL} alt="" />
-                      ) : (
-                        <span className="sidebar-user-avatar sidebar-user-avatar-fallback">
-                          {currentProfile?.name?.[0] || '?'}
-                        </span>
-                      )}
-                      <span>{currentProfile?.name || 'Member'}</span>
-                    </NavLink>
-                    <button className="btn btn-ghost btn-sm btn-block" onClick={logout}>
-                      Sign out
-                    </button>
-                  </div>
-                </aside>
-
-                {/* ---------- Mobile top bar (hidden on desktop via CSS) ---------- */}
+                {/* ---------- Top bar (same on web + mobile) ---------- */}
                 <header className="mobile-topbar">
                   <span className="mobile-topbar-brand">🥃 DistilleryHub</span>
                   <button
@@ -200,7 +116,7 @@ export default function App() {
                   </Routes>
                 </main>
 
-                {/* ---------- Mobile bottom nav (hidden on desktop via CSS) ---------- */}
+                {/* ---------- Bottom nav (same on web + mobile) ---------- */}
                 <nav className="bottom-nav">
                   {BOTTOM_NAV.map((item) => (
                     <NavLink
@@ -223,7 +139,7 @@ export default function App() {
                   </button>
                 </nav>
 
-                {/* ---------- Mobile "More" sheet ---------- */}
+                {/* ---------- "More" sheet ---------- */}
                 {showMobileSheet && (
                   <>
                     <div className="bottom-sheet-backdrop" onClick={() => setShowMobileSheet(false)} />
