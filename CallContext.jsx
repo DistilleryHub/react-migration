@@ -147,7 +147,14 @@ export function CallProvider({ children }) {
   }
 
   async function connectToPeer(peerUid, callId, callType) {
-    const pc = createPeerConnection(peerUid, callId);
+    // IMPORTANT: reuse an existing connection for this peer if one already
+    // exists. An incoming offer (handled in listenForSignals, which starts
+    // listening before this runs) can create the peer connection first —
+    // if we always created a brand-new one here, we'd silently replace an
+    // already-negotiating/connected PeerConnection with a fresh, empty one
+    // that never receives a remote description. That's what caused remote
+    // video (and sometimes audio) to never show up on one side of the call.
+    const pc = peersRef.current[peerUid] || createPeerConnection(peerUid, callId);
     const initiate = currentUser.uid < peerUid;
     if (initiate) {
       const offer = await pc.createOffer({
@@ -370,4 +377,4 @@ export function CallProvider({ children }) {
       {children}
     </CallContext.Provider>
   );
-              }
+        }
