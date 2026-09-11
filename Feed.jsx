@@ -73,7 +73,8 @@ export default function Feed() {
   const toast = useToast();
   const [posts, setPosts] = useState([]);
   const [text, setText] = useState('');
-  const [image, setImage] = useState(null);
+  const [media, setMedia] = useState(null);
+  const [mediaType, setMediaType] = useState(''); // 'image' | 'video'
   const [preview, setPreview] = useState('');
   const [posting, setPosting] = useState(false);
   const [openComments, setOpenComments] = useState(null);
@@ -86,30 +87,38 @@ export default function Feed() {
     return unsub;
   }, []);
 
-  function handleImagePick(e) {
+  function handleMediaPick(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setImage(file);
+    const type = file.type.startsWith('video') ? 'video' : 'image';
+    setMedia(file);
+    setMediaType(type);
     setPreview(URL.createObjectURL(file));
+  }
+
+  async function uploadMedia(file, type) {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+    // Cloudinary needs the correct resource type endpoint for video uploads
+    const resourceType = type === 'video' ? 'video' : 'image';
+    const res = await fetch(
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`,
+      { method: 'POST', body: form }
+    );
+    const data = await res.json();
+    if (!data.secure_url) throw new Error('Media upload failed');
+    return data.secure_url;
   }
 
   async function handlePost(e) {
     e.preventDefault();
-    if (!text.trim() && !image) return;
+    if (!text.trim() && !media) return;
     setPosting(true);
     try {
-      let imageURL = '';
-      if (image) {
-        const form = new FormData();
-        form.append('file', image);
-        form.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-        const res = await fetch(
-          `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
-          { method: 'POST', body: form }
-        );
-        const data = await res.json();
-        if (!data.secure_url) throw new Error('Image upload failed');
-        imageURL = data.secure_url;
+      let mediaURL = '';
+      if (media) {
+        mediaURL = await uploadMedia(media, mediaType);
       }
       await addDoc(collection(db, 'posts'), {
         authorId: currentUser.uid,
@@ -117,11 +126,13 @@ export default function Feed() {
         authorHeadline: currentProfile?.headline || '',
         authorPhotoURL: currentProfile?.photoURL || '',
         text: text.trim(),
-        imageURL,
+        imageURL: mediaType === 'image' ? mediaURL : '',
+        videoURL: mediaType === 'video' ? mediaURL : '',
         likes: [],
+        shares: [],
         createdAt: serverTimestamp(),
       });
-      setText(''); setImage(null); setPreview('');
+      setText(''); setMedia(null); setMediaType(''); setPreview('');
       toast('Posted');
     } catch (err) {
       toast(err.message || 'Could not post');
@@ -136,10 +147,65 @@ export default function Feed() {
     });
   }
 
+  // Repost/Share: creates a new post in the current user's feed that references
+  // the original post, and bumps the original's share count.
+  async function sharePost(post) {
+    if (post.sharedFrom) {
+      toast('Cannot reshare a shared post');
+      return;
+    }
+    const alreadyShared = post.shares?.includes(currentUser.uid);
+    if (alreadyShared) {
+      toast('You already shared this post');
+      return;
+    }
+    try {
+      await addDoc(collection(db, 'posts'), {
+        authorId: currentUser.uid,
+        authorName: currentProfile?.name || 'Member',
+        authorHeadline: currentProfile?.headline || '',
+        authorPhotoURL: currentProfile?.photoURL || '',
+        text: '',
+        imageURL: '',
+        videoURL: '',
+        likes: [],
+        shares: [],
+        sharedFrom: {
+          postId: post.id,
+          authorId: post.authorId,
+          authorName: post.authorName,
+          authorPhotoURL: post.authorPhotoURL || '',
+          text: post.text || '',
+          imageURL: post.imageURL || '',
+          videoURL: post.videoURL || '',
+        },
+        createdAt: serverTimestamp(),
+      });
+      await updateDoc(doc(db, 'posts', post.id), {
+        shares: arrayUnion(currentUser.uid),
+      });
+      toast('Shared to your feed');
+    } catch (err) {
+      toast(err.message || 'Could not share');
+    }
+  }
+
   async function removePost(post) {
     if (post.authorId !== currentUser.uid) return;
     if (!confirm('Delete this post?')) return;
     await deleteDoc(doc(db, 'posts', post.id));
+  }
+
+  function renderMedia(imageURL, videoURL) {
+    if (videoURL) {
+      return (
+        <video className="post-image" src={videoURL} controls playsInline />
+      );
+    }
+    if (imageURL) {
+      return <img className="post-image" src={imageURL} alt="" />;
+    }
+    return null;
   }
 
   return (
@@ -160,18 +226,20 @@ export default function Feed() {
         </div>
         {preview && (
           <div className="composer-preview">
-            <img src={preview} alt="preview" />
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setImage(null); setPreview(''); }}>
+            {mediaType === 'video'
+              ? <video src={preview} controls playsInline />
+              : <img src={preview} alt="preview" />}
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setMedia(null); setMediaType(''); setPreview(''); }}>
               Remove
             </button>
           </div>
         )}
         <div className="composer-actions">
           <label className="btn btn-ghost btn-sm">
-            Add photo
-            <input type="file" accept="image/*" hidden onChange={handleImagePick} />
+            Add photo/video
+            <input type="file" accept="image/*,video/*" hidden onChange={handleMediaPick} />
           </label>
-          <button type="submit" className="btn btn-primary btn-sm" disabled={posting || (!text.trim() && !image)}>
+          <button type="submit" className="btn btn-primary btn-sm" disabled={posting || (!text.trim() && !media)}>
             {posting ? <span className="spinner" /> : 'Post'}
           </button>
         </div>
@@ -190,14 +258,37 @@ export default function Feed() {
             <div className="post-author">
               <Link to={`/profile/${post.authorId}`} className="post-author-name">{post.authorName}</Link>
               {post.authorHeadline && <div className="post-author-headline">{post.authorHeadline}</div>}
-              <div className="post-time">{timeAgo(post.createdAt)}</div>
+              <div className="post-time">
+                {post.sharedFrom ? 'shared a post · ' : ''}{timeAgo(post.createdAt)}
+              </div>
             </div>
             {post.authorId === currentUser.uid && (
               <button className="btn btn-ghost btn-sm" onClick={() => removePost(post)}>Delete</button>
             )}
           </div>
+
           {post.text && <p className="post-text">{post.text}</p>}
-          {post.imageURL && <img className="post-image" src={post.imageURL} alt="" />}
+          {!post.sharedFrom && renderMedia(post.imageURL, post.videoURL)}
+
+          {post.sharedFrom && (
+            <div className="card shared-post-inner" style={{ margin: '8px 0', padding: '10px' }}>
+              <div className="post-header">
+                <Link to={`/profile/${post.sharedFrom.authorId}`} className="avatar">
+                  {post.sharedFrom.authorPhotoURL
+                    ? <img src={post.sharedFrom.authorPhotoURL} alt="" />
+                    : (post.sharedFrom.authorName?.[0] || '?')}
+                </Link>
+                <div className="post-author">
+                  <Link to={`/profile/${post.sharedFrom.authorId}`} className="post-author-name">
+                    {post.sharedFrom.authorName}
+                  </Link>
+                </div>
+              </div>
+              {post.sharedFrom.text && <p className="post-text">{post.sharedFrom.text}</p>}
+              {renderMedia(post.sharedFrom.imageURL, post.sharedFrom.videoURL)}
+            </div>
+          )}
+
           <div className="post-actions">
             <button
               type="button"
@@ -213,6 +304,15 @@ export default function Feed() {
             >
               💬 Comments
             </button>
+            {!post.sharedFrom && (
+              <button
+                type="button"
+                className={'btn btn-ghost btn-sm' + (post.shares?.includes(currentUser.uid) ? ' active' : '')}
+                onClick={() => sharePost(post)}
+              >
+                🔁 Share {post.shares?.length || 0}
+              </button>
+            )}
           </div>
           {openComments === post.id && (
             <Comments postId={post.id} currentUser={currentUser} currentProfile={currentProfile} />
@@ -221,4 +321,4 @@ export default function Feed() {
       ))}
     </div>
   );
-          }
+}
