@@ -55,39 +55,47 @@ export function CallProvider({ children }) {
   useEffect(() => {
     if (!currentUser) return;
     const q = query(collection(db, 'calls'), where('participants', 'array-contains', currentUser.uid));
-    const unsub = onSnapshot(q, (snap) => {
-      snap.docChanges().forEach((change) => {
-        const data = { id: change.doc.id, ...change.doc.data() };
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        snap.docChanges().forEach((change) => {
+          const data = { id: change.doc.id, ...change.doc.data() };
 
-        // Naya incoming call — ringtone bajao (sirf jinhone call start nahi ki unke liye)
-        if (change.type === 'added' && data.status === 'ringing' && data.initiatedBy !== currentUser.uid) {
-          setIncomingCall(data);
-          if (!ringtoneStopRef.current) {
-            ringtoneStopRef.current = startRingtone();
-          }
-        }
-
-        // Doosre banda ne call accept kar li -> caller ki ringback band karo, UI active pe switch karo
-        if (change.type === 'modified' && activeCallRef.current?.id === data.id && data.status === 'active') {
-          setActiveCall((prev) => (prev ? { ...prev, status: 'active' } : prev));
-          if (ringbackStopRef.current) { ringbackStopRef.current(); ringbackStopRef.current = null; }
-        }
-
-        // Call khatam ho gayi (decline / hangup / dono me se koi bhi)
-        if (data.status === 'ended') {
-          if (activeCallRef.current?.id === data.id) {
-            endCallCleanup();
-          }
-          setIncomingCall((prev) => {
-            if (prev && prev.id === data.id) {
-              if (ringtoneStopRef.current) { ringtoneStopRef.current(); ringtoneStopRef.current = null; }
-              return null;
+          // Naya incoming call — ringtone bajao (sirf jinhone call start nahi ki unke liye)
+          if (change.type === 'added' && data.status === 'ringing' && data.initiatedBy !== currentUser.uid) {
+            setIncomingCall(data);
+            if (!ringtoneStopRef.current) {
+              ringtoneStopRef.current = startRingtone();
             }
-            return prev;
-          });
-        }
-      });
-    });
+          }
+
+          // Doosre banda ne call accept kar li -> caller ki ringback band karo, UI active pe switch karo
+          if (change.type === 'modified' && activeCallRef.current?.id === data.id && data.status === 'active') {
+            setActiveCall((prev) => (prev ? { ...prev, status: 'active' } : prev));
+            if (ringbackStopRef.current) { ringbackStopRef.current(); ringbackStopRef.current = null; }
+          }
+
+          // Call khatam ho gayi (decline / hangup / dono me se koi bhi)
+          if (data.status === 'ended') {
+            if (activeCallRef.current?.id === data.id) {
+              endCallCleanup();
+            }
+            setIncomingCall((prev) => {
+              if (prev && prev.id === data.id) {
+                if (ringtoneStopRef.current) { ringtoneStopRef.current(); ringtoneStopRef.current = null; }
+                return null;
+              }
+              return prev;
+            });
+          }
+        });
+      },
+      (error) => {
+        // Agar ye silently fail ho (e.g. missing Firestore index / rules issue),
+        // koi bhi incoming call kabhi nahi dikhegi. Ab console me clear error aayega.
+        console.error('DistilleryHub: calls listener failed', error);
+      }
+    );
     return unsub;
   }, [currentUser]);
 
@@ -128,7 +136,7 @@ export function CallProvider({ children }) {
           kind: 'candidate',
           payload: JSON.stringify(event.candidate),
           createdAt: serverTimestamp(),
-        });
+        }).catch((e) => console.error('DistilleryHub call: failed to send ICE candidate', e));
       }
     };
 
@@ -178,48 +186,65 @@ export function CallProvider({ children }) {
       where('to', '==', currentUser.uid),
       orderBy('createdAt', 'asc')
     );
-    return onSnapshot(q, (snap) => {
-      snap.docChanges().forEach(async (change) => {
-        if (change.type !== 'added') return;
-        const sig = change.doc.data();
-        const from = sig.from;
-        let pc = peersRef.current[from];
-        if (!pc) pc = createPeerConnection(from, callId);
+    return onSnapshot(
+      q,
+      (snap) => {
+        snap.docChanges().forEach(async (change) => {
+          if (change.type !== 'added') return;
+          const sig = change.doc.data();
+          const from = sig.from;
+          let pc = peersRef.current[from];
+          if (!pc) pc = createPeerConnection(from, callId);
 
-        const payload = JSON.parse(sig.payload);
+          const payload = JSON.parse(sig.payload);
 
-        try {
-          if (sig.kind === 'offer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(payload));
-            await flushQueuedCandidates(from, pc);
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            await addDoc(collection(db, 'calls', callId, 'signals'), {
-              from: currentUser.uid,
-              to: from,
-              kind: 'answer',
-              payload: JSON.stringify(answer),
-              createdAt: serverTimestamp(),
-            });
-          } else if (sig.kind === 'answer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(payload));
-            await flushQueuedCandidates(from, pc);
-          } else if (sig.kind === 'candidate') {
-            // Agar remote description abhi set nahi hui, candidate ko queue me daalo —
-            // pehle ye silently drop/fail ho jata tha aur connection kabhi bijli nahi banti thi.
-            if (pc.remoteDescription && pc.remoteDescription.type) {
-              await pc.addIceCandidate(new RTCIceCandidate(payload));
-            } else {
-              queueCandidate(from, payload);
+          try {
+            if (sig.kind === 'offer') {
+              await pc.setRemoteDescription(new RTCSessionDescription(payload));
+              await flushQueuedCandidates(from, pc);
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              await addDoc(collection(db, 'calls', callId, 'signals'), {
+                from: currentUser.uid,
+                to: from,
+                kind: 'answer',
+                payload: JSON.stringify(answer),
+                createdAt: serverTimestamp(),
+              });
+            } else if (sig.kind === 'answer') {
+              await pc.setRemoteDescription(new RTCSessionDescription(payload));
+              await flushQueuedCandidates(from, pc);
+            } else if (sig.kind === 'candidate') {
+              // Agar remote description abhi set nahi hui, candidate ko queue me daalo —
+              // pehle ye silently drop/fail ho jata tha aur connection kabhi bijli nahi banti thi.
+              if (pc.remoteDescription && pc.remoteDescription.type) {
+                await pc.addIceCandidate(new RTCIceCandidate(payload));
+              } else {
+                queueCandidate(from, payload);
+              }
             }
+          } catch (e) {
+            console.error('DistilleryHub call: signal handling failed', sig.kind, e);
           }
-        } catch (e) {
-          console.error('DistilleryHub call: signal handling failed', sig.kind, e);
-        }
 
-        deleteDoc(change.doc.ref).catch(() => {});
-      });
-    });
+          deleteDoc(change.doc.ref).catch(() => {});
+        });
+      },
+      (error) => {
+        // CRITICAL: is query ko 'to' (where) + 'createdAt' (orderBy) chahiye —
+        // Firestore ko iske liye composite index chahiye hota hai. Agar wo
+        // index nahi hai, ye query yahan tak pehle silently fail ho jaati
+        // thi — offer/answer/ICE candidates kabhi exchange hi nahi hote the,
+        // isliye dono taraf sirf apna khud ka local video dikhta tha, remote
+        // ka na video aata tha na audio.
+        //
+        // Ab error console me clearly dikhega. Agar index missing hai,
+        // Firebase khud ek clickable link degi jisse 1 click me index ban
+        // jaayega (Firebase Console > Firestore > Indexes me bhi manually
+        // bana sakte ho: collection 'signals', fields 'to' Asc + 'createdAt' Asc).
+        console.error('DistilleryHub: signal listener failed for call', callId, error);
+      }
+    );
   }
 
   const startCall = useCallback(async (participantUids, callType = 'video') => {
@@ -377,4 +402,4 @@ export function CallProvider({ children }) {
       {children}
     </CallContext.Provider>
   );
-        }
+}
