@@ -1,3 +1,44 @@
+importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
+
+firebase.initializeApp({
+  apiKey: "AIzaSyB63lPTtic1RUjfq-KXWrvtisSGIetXL6k",
+  authDomain: "distilleryhub-b1d2d.firebaseapp.com",
+  projectId: "distilleryhub-b1d2d",
+  storageBucket: "distilleryhub-b1d2d.firebasestorage.app",
+  messagingSenderId: "221084904588",
+  appId: "1:221084904588:web:f1c47a722b2a7c98509fa9",
+});
+
+const messaging = firebase.messaging();
+
+// App band ho ya background mein ho, tab yeh chalega
+messaging.onBackgroundMessage((payload) => {
+  const title = payload.notification?.title || payload.data?.title || 'DistilleryHub';
+  const options = {
+    body: payload.notification?.body || payload.data?.body || '',
+    icon: '/react-migration/icon-192.png',
+    badge: '/react-migration/icon-192.png',
+    data: { url: payload.data?.url || '/react-migration/' },
+  };
+  self.registration.showNotification(title, options);
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || '/react-migration/';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.url.includes(url) && 'focus' in client) return client.focus();
+      }
+      if (clients.openWindow) return clients.openWindow(url);
+    })
+  );
+});
+
+// ---------------- Purana caching logic — bilkul waisa hi, unchanged ----------------
+
 const CACHE_NAME = 'distilleryhub-v2';
 const OFFLINE_URL = '/react-migration/';
 
@@ -27,7 +68,6 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 
-  // Never touch Firebase/Firestore/Cloudinary API calls — always go straight to network
   if (
     request.url.includes('firestore.googleapis.com') ||
     request.url.includes('googleapis.com') ||
@@ -46,7 +86,6 @@ self.addEventListener('fetch', (event) => {
     request.url.includes('fonts.gstatic.com');
 
   if (isStaticAsset) {
-    // Cache-first: these rarely change, serve instantly from cache
     event.respondWith(
       caches.match(request).then((cached) => {
         if (cached) return cached;
@@ -62,8 +101,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first: HTML, JS, CSS — always try to get the latest deploy.
-  // Falls back to cache only when offline.
   event.respondWith(
     fetch(request)
       .then((response) => {
