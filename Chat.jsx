@@ -448,27 +448,33 @@ export default function Chat() {
   async function sendRawMessage(body, extra = {}) {
     if (!body.trim() && !extra.mediaUrl && !extra.poll && !extra.event) return;
     const { chatId, participants } = getChatMeta();
-    await setDoc(doc(db, 'chats', chatId), {
-      type: activeChat.type === 'group' ? 'group' : 'direct',
-      participants,
-      ...(activeChat.type === 'group' ? { name: activeChat.chat.name } : {}),
-      lastMessage: body || `[${extra.attachmentType || 'attachment'}]`,
-      lastMessageAt: serverTimestamp(),
-    }, { merge: true });
-    const disappearingSeconds = chatMeta?.disappearingSeconds || 0;
-    const expiresAt = disappearingSeconds > 0
-      ? Timestamp.fromMillis(Date.now() + disappearingSeconds * 1000)
-      : null;
-    await addDoc(collection(db, 'chats', chatId, 'messages'), {
-      senderId: currentUser.uid,
-      text: body,
-      createdAt: serverTimestamp(),
-      readBy: [],
-      reactions: {},
-      deletedFor: [],
-      ...(expiresAt ? { expiresAt } : {}),
-      ...extra,
-    });
+    try {
+      await setDoc(doc(db, 'chats', chatId), {
+        type: activeChat.type === 'group' ? 'group' : 'direct',
+        participants,
+        ...(activeChat.type === 'group' ? { name: activeChat.chat.name } : {}),
+        lastMessage: body || `[${extra.attachmentType || 'attachment'}]`,
+        lastMessageAt: serverTimestamp(),
+      }, { merge: true });
+      const disappearingSeconds = chatMeta?.disappearingSeconds || 0;
+      const expiresAt = disappearingSeconds > 0
+        ? Timestamp.fromMillis(Date.now() + disappearingSeconds * 1000)
+        : null;
+      await addDoc(collection(db, 'chats', chatId, 'messages'), {
+        senderId: currentUser.uid,
+        text: body,
+        createdAt: serverTimestamp(),
+        readBy: [],
+        reactions: {},
+        deletedFor: [],
+        ...(expiresAt ? { expiresAt } : {}),
+        ...extra,
+      });
+    } catch (err) {
+      console.error('sendRawMessage failed', err);
+      alert('Message send failed: ' + err.code + ' — ' + err.message);
+      setText(body);
+    }
   }
 
   async function sendMessage(e) {
