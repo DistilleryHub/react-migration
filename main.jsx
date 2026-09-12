@@ -1,4 +1,8 @@
 import React from 'react';
+// Applied synchronously before first paint so there's no flash of the
+// wrong theme/accent/layout while React boots up.
+const savedTheme = localStorage.getItem('dh-theme') || 'dark';
+document.documentElement.setAttribute('data-theme', savedTheme);
 const savedAccent = localStorage.getItem('dh-accent');
 if (savedAccent) document.documentElement.style.setProperty('--primary', savedAccent);
 const savedCompact = localStorage.getItem('dh-compact') === '1';
@@ -8,16 +12,22 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App.jsx';
 import { AuthProvider } from './AuthContext.jsx';
 import { ToastProvider } from './ToastContext.jsx';
+import { ThemeProvider } from './ThemeContext.jsx';
+import { LanguageProvider } from './LanguageContext.jsx';
 import './styles.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter basename="/react-migration">
-      <ToastProvider>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
-      </ToastProvider>
+      <ThemeProvider>
+        <LanguageProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <App />
+            </AuthProvider>
+          </ToastProvider>
+        </LanguageProvider>
+      </ThemeProvider>
     </BrowserRouter>
   </React.StrictMode>
 );

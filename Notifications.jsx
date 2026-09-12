@@ -5,6 +5,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { useAuth } from './AuthContext';
+import { useLanguage } from './LanguageContext';
 
 function timeAgo(ts) {
   if (!ts?.toDate) return '';
@@ -19,6 +20,7 @@ function timeAgo(ts) {
 
 export default function Notifications() {
   const { currentUser } = useAuth();
+  const { t } = useLanguage();
   const [notifications, setNotifications] = useState([]);
 
   useEffect(() => {
@@ -43,32 +45,44 @@ export default function Notifications() {
 
   return (
     <div className="notifications-page">
-      <div className="card notifications-header">
-        <h2>Notifications</h2>
-        {unreadCount > 0 && <span className="badge">{unreadCount} new</span>}
+      <div className="notifications-header">
+        <h2>{t('notifications.title')}</h2>
+        {unreadCount > 0 && <span className="badge">{unreadCount} {t('notifications.new')}</span>}
       </div>
 
       {notifications.length === 0 && (
-        <div className="empty-state">No notifications yet.</div>
+        <div className="empty-state">{t('notifications.empty')}</div>
       )}
 
-      {notifications.map((n) => (
-        <div
-          className={'card notification-row' + (n.read ? '' : ' unread')}
-          key={n.id}
-          onClick={() => markRead(n)}
-        >
-          <div className="notification-text">
-            <div>{n.message}</div>
-            <div className="post-time">{timeAgo(n.createdAt)}</div>
-          </div>
-          {n.link && (
-            <Link to={n.link} className="btn btn-ghost btn-sm" onClick={(e) => e.stopPropagation()}>
-              View
-            </Link>
-          )}
+      {notifications.length > 0 && (
+        <div className="notifications-list">
+          {notifications.map((n) => (
+            <div
+              className={'notification-row' + (n.read ? '' : ' unread')}
+              key={n.id}
+              onClick={() => markRead(n)}
+            >
+              <div className="notification-avatar">
+                {n.fromUserPhoto ? (
+                  <img src={n.fromUserPhoto} alt="" />
+                ) : (
+                  (n.fromUserName || n.message || '?')[0]?.toUpperCase()
+                )}
+              </div>
+              <div className="notification-text">
+                <div className="notification-message">{n.message}</div>
+                <div className="post-time">{timeAgo(n.createdAt)}</div>
+              </div>
+              {n.link && (
+                <Link to={n.link} className="btn btn-ghost btn-sm" onClick={(e) => e.stopPropagation()}>
+                  {t('notifications.view')}
+                </Link>
+              )}
+              {!n.read && <span className="notification-dot" />}
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext.jsx';
+import { useLanguage } from './LanguageContext.jsx';
 import { CallProvider } from './CallContext.jsx';
 import CallScreen from './CallScreen.jsx';
 import Feed from './Feed.jsx';
@@ -24,26 +25,30 @@ import GroupDetail from './GroupDetail.jsx';
 
 // Single nav bar used on every screen size — Feed, Chat, Status, Network,
 // Notifications. Only 5 fit comfortably in a fixed bottom bar, the rest
-// live behind "More".
-const BOTTOM_NAV = [
-  { to: '/', label: 'Feed', icon: '🏠', end: true },
-  { to: '/chat', label: 'Chat', icon: '💬' },
-  { to: '/status', label: 'Status', icon: '⭐' },
-  { to: '/network', label: 'Network', icon: '👥' },
-  { to: '/notifications', label: 'Notifications', icon: '🔔' },
-];
+// live behind "More". Built inside the component so labels can be translated.
+function buildBottomNav(t) {
+  return [
+    { to: '/', label: t('nav.feed'), icon: '🏠', end: true },
+    { to: '/chat', label: t('nav.chat'), icon: '💬' },
+    { to: '/status', label: t('nav.status'), icon: '⭐' },
+    { to: '/network', label: t('nav.network'), icon: '👥' },
+    { to: '/notifications', label: t('nav.notifications'), icon: '🔔' },
+  ];
+}
 
-const BOTTOM_MORE = [
-  { to: '/groups', label: 'Groups', icon: '🧑‍🤝‍🧑' },
-  { to: '/search', label: 'Search', icon: '🔍' },
-  { to: '/jobs', label: 'Jobs', icon: '💼' },
-  { to: '/articles', label: 'Articles', icon: '📰' },
-  { to: '/market', label: 'Marketplace', icon: '🛒' },
-  { to: '/videos', label: 'Videos', icon: '▶️' },
-  { to: '/files', label: 'Files', icon: '📁' },
-  { to: '/learning', label: 'Learning', icon: '🎓' },
-  { to: '/settings', label: 'Settings', icon: '⚙️' },
-];
+function buildBottomMore(t) {
+  return [
+    { to: '/groups', label: t('nav.groups'), icon: '🧑‍🤝‍🧑' },
+    { to: '/search', label: t('nav.search'), icon: '🔍' },
+    { to: '/jobs', label: t('nav.jobs'), icon: '💼' },
+    { to: '/articles', label: t('nav.articles'), icon: '📰' },
+    { to: '/market', label: t('nav.market'), icon: '🛒' },
+    { to: '/videos', label: t('nav.videos'), icon: '▶️' },
+    { to: '/files', label: t('nav.files'), icon: '📁' },
+    { to: '/learning', label: t('nav.learning'), icon: '🎓' },
+    { to: '/settings', label: t('nav.settings'), icon: '⚙️' },
+  ];
+}
 
 function RequireAuth({ children }) {
   const { currentUser } = useAuth();
@@ -53,13 +58,16 @@ function RequireAuth({ children }) {
 
 export default function App() {
   const { currentUser, currentProfile, authLoading, logout } = useAuth();
+  const { t } = useLanguage();
   const [showMobileSheet, setShowMobileSheet] = useState(false);
   const navigate = useNavigate();
+  const BOTTOM_NAV = buildBottomNav(t);
+  const BOTTOM_MORE = buildBottomMore(t);
 
   if (authLoading) {
     return (
       <div className="auth-loading" style={{ display: 'flex' }}>
-        <span className="spinner" style={{ marginRight: 8 }} /> Connecting to DistilleryHub…
+        <span className="spinner" style={{ marginRight: 8 }} /> {t('app.connecting')}
       </div>
     );
   }
@@ -135,7 +143,7 @@ export default function App() {
                     onClick={() => setShowMobileSheet((v) => !v)}
                   >
                     <span className="bottom-nav-icon">{showMobileSheet ? '✕' : '⋯'}</span>
-                    <span className="bottom-nav-label">More</span>
+                    <span className="bottom-nav-label">{t('nav.more')}</span>
                   </button>
                 </nav>
 
@@ -163,7 +171,7 @@ export default function App() {
                             className="bottom-sheet-item"
                           >
                             <span className="bottom-sheet-icon">🛡️</span>
-                            <span className="bottom-sheet-label">Admin</span>
+                            <span className="bottom-sheet-label">{t('nav.admin')}</span>
                           </NavLink>
                         )}
                       </div>
@@ -173,7 +181,7 @@ export default function App() {
                         style={{ marginTop: 12 }}
                         onClick={() => { setShowMobileSheet(false); logout(); }}
                       >
-                        Sign out
+                        {t('nav.signOut')}
                       </button>
                     </div>
                   </>

@@ -5,6 +5,8 @@ import { db } from './firebase';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { useNavigate } from 'react-router-dom';
+import { useLanguage } from './LanguageContext';
+import { useTheme } from './ThemeContext';
 
 const DEFAULT_SETTINGS = {
   // Privacy & Visibility
@@ -35,15 +37,6 @@ const DEFAULT_SETTINGS = {
   notifyPush: true,
   notifyEmail: false,
 };
-
-const TABS = [
-  { id: 'account', label: 'Account & Security', icon: '👤' },
-  { id: 'privacy', label: 'Privacy & Visibility', icon: '🔒' },
-  { id: 'chatcall', label: 'Chat & Call Preferences', icon: '💬' },
-  { id: 'jobsmarket', label: 'Jobs & Market Alerts', icon: '💼' },
-  { id: 'content', label: 'Content & Downloads', icon: '📁' },
-  { id: 'notifications', label: 'Notifications', icon: '🔔' },
-];
 
 function Toggle({ checked, onChange, label, hint }) {
   return (
@@ -79,13 +72,31 @@ export default function Settings() {
   const { currentUser, currentProfile, logout } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
+  const { t, lang, setLang, languages } = useLanguage();
+  const { theme, setTheme, accent, setAccent, compact, setCompact, ACCENT_COLORS } = useTheme();
 
-  const [activeTab, setActiveTab] = useState('account');
+  // null = main menu list screen (like a typical professional-network Settings home).
+  const [activeTab, setActiveTab] = useState(null);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [profileForm, setProfileForm] = useState({
     name: '', bio: '', designation: '', company: '', qualifications: '',
   });
   const [saving, setSaving] = useState(false);
+
+  const MENU = [
+    { id: 'account', icon: '👤', title: t('settings.menu.account'), desc: t('settings.menu.account.desc') },
+    { id: 'security', icon: '🔒', title: t('settings.menu.security'), desc: t('settings.menu.security.desc') },
+    { id: 'privacy', icon: '👁️', title: t('settings.menu.visibility'), desc: t('settings.menu.visibility.desc') },
+    { id: 'chatcall', icon: '💬', title: t('settings.menu.chatcall'), desc: t('settings.menu.chatcall.desc') },
+    { id: 'jobsmarket', icon: '💼', title: t('settings.menu.jobsmarket'), desc: t('settings.menu.jobsmarket.desc') },
+    { id: 'content', icon: '📁', title: t('settings.menu.content'), desc: t('settings.menu.content.desc') },
+    { id: 'notifications', icon: '🔔', title: t('settings.menu.notifications'), desc: t('settings.menu.notifications.desc') },
+    { id: 'appearance', icon: '🎨', title: t('settings.menu.appearance'), desc: t('settings.menu.appearance.desc') },
+    { id: 'language', icon: '🌐', title: t('settings.menu.language'), desc: t('settings.menu.language.desc') },
+  ];
+  if (currentProfile?.isAdmin) {
+    MENU.push({ id: 'admin', icon: '🛡️', title: t('settings.menu.admin'), desc: '' });
+  }
 
   useEffect(() => {
     if (!currentUser) return;
@@ -109,7 +120,7 @@ export default function Settings() {
     try {
       await setDoc(doc(db, 'users', currentUser.uid), { settings: next }, { merge: true });
     } catch (err) {
-      toast('Could not save setting. Try again.');
+      toast(t('toast.settingSaveFail'));
     }
   }
 
@@ -118,9 +129,9 @@ export default function Settings() {
     setSaving(true);
     try {
       await updateDoc(doc(db, 'users', currentUser.uid), { ...profileForm });
-      toast('Profile updated');
+      toast(t('toast.profileUpdated'));
     } catch (err) {
-      toast('Could not update profile.');
+      toast(t('toast.profileUpdateFail'));
     } finally {
       setSaving(false);
     }
@@ -129,20 +140,20 @@ export default function Settings() {
   async function handlePasswordReset() {
     try {
       await sendPasswordResetEmail(getAuth(), currentUser.email);
-      toast('Password reset email sent');
+      toast(t('toast.resetSent'));
     } catch (err) {
-      toast('Could not send reset email.');
+      toast(t('toast.resetFail'));
     }
   }
 
   async function handleDeleteAccount() {
-    if (!window.confirm('This will permanently delete your account. Continue?')) return;
+    if (!window.confirm(t('confirm.deleteAccount'))) return;
     try {
       await deleteUser(getAuth().currentUser);
-      toast('Account deleted');
+      toast(t('toast.accountDeleted'));
       navigate('/auth');
     } catch (err) {
-      toast('Could not delete account. You may need to sign in again first.');
+      toast(t('toast.accountDeleteFail'));
     }
   }
 
@@ -152,55 +163,69 @@ export default function Settings() {
       Object.keys(window.localStorage)
         .filter((k) => !k.startsWith('firebase:'))
         .forEach((k) => window.localStorage.removeItem(k));
-      toast('Local cache cleared');
+      toast(t('toast.cacheCleared'));
     } catch (err) {
-      toast('Could not clear cache.');
+      toast(t('toast.cacheClearFail'));
     }
   }
 
+  const activeMenuItem = MENU.find((m) => m.id === activeTab);
+
   return (
     <div className="settings-page">
-      <h1 className="settings-title">Settings</h1>
+      <h1 className="settings-title">{t('settings.title')}</h1>
 
-      <div className="settings-layout">
-        <nav className="settings-tabs">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              className={'settings-tab' + (activeTab === tab.id ? ' active' : '')}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              <span className="settings-tab-icon">{tab.icon}</span>
-              <span className="settings-tab-label">{tab.label}</span>
-            </button>
-          ))}
-          {currentProfile?.isAdmin && (
-            <button
-              type="button"
-              className={'settings-tab' + (activeTab === 'admin' ? ' active' : '')}
-              onClick={() => setActiveTab('admin')}
-            >
-              <span className="settings-tab-icon">🛡️</span>
-              <span className="settings-tab-label">Admin Access</span>
-            </button>
-          )}
-        </nav>
+      {/* ---------- Main menu (no section open) ---------- */}
+      {!activeTab && (
+        <>
+          <nav className="settings-menu-list">
+            {MENU.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="settings-menu-row"
+                onClick={() => setActiveTab(item.id)}
+              >
+                <span className="settings-menu-row-icon">{item.icon}</span>
+                <span className="settings-menu-row-text">
+                  <span className="settings-menu-row-title">{item.title}</span>
+                  {item.desc && <span className="settings-menu-row-desc">{item.desc}</span>}
+                </span>
+                <span className="settings-menu-row-arrow">›</span>
+              </button>
+            ))}
+          </nav>
 
+          <div className="settings-footer-links">
+            <button className="btn btn-ghost btn-block" onClick={logout}>{t('nav.signOut')}</button>
+            <div className="settings-version">DistilleryHub</div>
+          </div>
+        </>
+      )}
+
+      {/* ---------- Detail screens ---------- */}
+      {activeTab && (
         <div className="settings-panel">
+          <div className="settings-detail-header">
+            <button type="button" className="settings-detail-back" onClick={() => setActiveTab(null)}>
+              ← {t('settings.back')}
+            </button>
+            <h2>{activeMenuItem?.title}</h2>
+          </div>
+
           {activeTab === 'account' && (
             <section className="settings-section">
-              <h2>Account & Professional Identity</h2>
+              <h2>{t('settings.account.heading')}</h2>
               <form onSubmit={saveProfile} className="settings-form">
                 <label className="settings-field">
-                  <span>Name</span>
+                  <span>{t('settings.field.name')}</span>
                   <input
                     value={profileForm.name}
                     onChange={(e) => setProfileForm((f) => ({ ...f, name: e.target.value }))}
                   />
                 </label>
                 <label className="settings-field">
-                  <span>Bio</span>
+                  <span>{t('settings.field.bio')}</span>
                   <textarea
                     rows={3}
                     value={profileForm.bio}
@@ -208,42 +233,46 @@ export default function Settings() {
                   />
                 </label>
                 <label className="settings-field">
-                  <span>Designation</span>
+                  <span>{t('settings.field.designation')}</span>
                   <input
                     value={profileForm.designation}
                     onChange={(e) => setProfileForm((f) => ({ ...f, designation: e.target.value }))}
                   />
                 </label>
                 <label className="settings-field">
-                  <span>Plant / Company</span>
+                  <span>{t('settings.field.company')}</span>
                   <input
                     value={profileForm.company}
                     onChange={(e) => setProfileForm((f) => ({ ...f, company: e.target.value }))}
                   />
                 </label>
                 <label className="settings-field">
-                  <span>Qualifications</span>
+                  <span>{t('settings.field.qualifications')}</span>
                   <input
                     value={profileForm.qualifications}
                     onChange={(e) => setProfileForm((f) => ({ ...f, qualifications: e.target.value }))}
                   />
                 </label>
                 <button className="btn btn-primary" type="submit" disabled={saving}>
-                  {saving ? 'Saving…' : 'Save profile'}
+                  {saving ? t('settings.saving') : t('settings.save')}
                 </button>
               </form>
+            </section>
+          )}
 
-              <h3 className="settings-subheading">Contact & Security</h3>
-              <p className="settings-static-field"><strong>Email:</strong> {currentUser?.email}</p>
+          {activeTab === 'security' && (
+            <section className="settings-section">
+              <h2>{t('settings.contactSecurity')}</h2>
+              <p className="settings-static-field"><strong>{t('settings.email')}:</strong> {currentUser?.email}</p>
               <button className="btn btn-secondary" onClick={handlePasswordReset}>
-                Change password
+                {t('settings.changePassword')}
               </button>
 
-              <h3 className="settings-subheading danger-zone-heading">Danger zone</h3>
+              <h3 className="settings-subheading danger-zone-heading">{t('settings.dangerZone')}</h3>
               <div className="danger-zone">
-                <button className="btn btn-ghost btn-block" onClick={logout}>Sign out</button>
+                <button className="btn btn-ghost btn-block" onClick={logout}>{t('nav.signOut')}</button>
                 <button className="btn btn-danger btn-block" onClick={handleDeleteAccount}>
-                  Delete account
+                  {t('settings.deleteAccount')}
                 </button>
               </div>
             </section>
@@ -251,37 +280,37 @@ export default function Settings() {
 
           {activeTab === 'privacy' && (
             <section className="settings-section">
-              <h2>Privacy & Network Controls</h2>
+              <h2>{t('settings.privacy.heading')}</h2>
               <Select
-                label="Who can see my profile"
+                label={t('settings.privacy.whoSeesProfile')}
                 value={settings.profileVisibility}
                 onChange={(v) => saveSettings({ profileVisibility: v })}
                 options={[
-                  { value: 'public', label: 'Everyone' },
-                  { value: 'connections', label: 'Connections only' },
-                  { value: 'private', label: 'Only me' },
+                  { value: 'public', label: t('settings.opt.everyone') },
+                  { value: 'connections', label: t('settings.opt.connectionsOnly') },
+                  { value: 'private', label: t('settings.opt.onlyMe') },
                 ]}
               />
               <Select
-                label="Who can message me"
+                label={t('settings.privacy.whoMessages')}
                 value={settings.whoCanMessage}
                 onChange={(v) => saveSettings({ whoCanMessage: v })}
                 options={[
-                  { value: 'everyone', label: 'Everyone' },
-                  { value: 'connections', label: 'Connections only' },
+                  { value: 'everyone', label: t('settings.opt.everyone') },
+                  { value: 'connections', label: t('settings.opt.connectionsOnly') },
                 ]}
               />
               <Select
-                label="Who can view my Status"
+                label={t('settings.privacy.whoViewsStatus')}
                 value={settings.whoCanViewStatus}
                 onChange={(v) => saveSettings({ whoCanViewStatus: v })}
                 options={[
-                  { value: 'everyone', label: 'Everyone' },
-                  { value: 'connections', label: 'Connections only' },
+                  { value: 'everyone', label: t('settings.opt.everyone') },
+                  { value: 'connections', label: t('settings.opt.connectionsOnly') },
                 ]}
               />
               <Toggle
-                label="Show online status"
+                label={t('settings.privacy.showOnline')}
                 checked={settings.showOnlineStatus}
                 onChange={(v) => saveSettings({ showOnlineStatus: v })}
               />
@@ -290,30 +319,30 @@ export default function Settings() {
 
           {activeTab === 'chatcall' && (
             <section className="settings-section">
-              <h2>Chat & Call Preferences</h2>
+              <h2>{t('settings.chatcall.heading')}</h2>
               <Toggle
-                label="Read receipts"
-                hint="Others see when you've read their messages"
+                label={t('settings.chatcall.readReceipts')}
+                hint={t('settings.chatcall.readReceipts.hint')}
                 checked={settings.readReceipts}
                 onChange={(v) => saveSettings({ readReceipts: v })}
               />
               <Toggle
-                label="Last seen"
+                label={t('settings.chatcall.lastSeen')}
                 checked={settings.lastSeen}
                 onChange={(v) => saveSettings({ lastSeen: v })}
               />
               <Toggle
-                label="Message preview in notifications"
+                label={t('settings.chatcall.msgPreview')}
                 checked={settings.messagePreview}
                 onChange={(v) => saveSettings({ messagePreview: v })}
               />
               <Select
-                label="Default call type"
+                label={t('settings.chatcall.defaultCall')}
                 value={settings.defaultCallType}
                 onChange={(v) => saveSettings({ defaultCallType: v })}
                 options={[
-                  { value: 'audio', label: 'Audio' },
-                  { value: 'video', label: 'Video' },
+                  { value: 'audio', label: t('settings.opt.audio') },
+                  { value: 'video', label: t('settings.opt.video') },
                 ]}
               />
             </section>
@@ -321,33 +350,33 @@ export default function Settings() {
 
           {activeTab === 'jobsmarket' && (
             <section className="settings-section">
-              <h2>Jobs & Marketplace</h2>
+              <h2>{t('settings.jobsmarket.heading')}</h2>
               <Toggle
-                label="Open to work"
+                label={t('settings.jobsmarket.openToWork')}
                 checked={settings.openToWork}
                 onChange={(v) => saveSettings({ openToWork: v })}
               />
               <label className="settings-field">
-                <span>Preferred locations</span>
+                <span>{t('settings.jobsmarket.preferredLocations')}</span>
                 <input
                   value={settings.preferredLocations}
                   onChange={(e) => saveSettings({ preferredLocations: e.target.value })}
                 />
               </label>
               <label className="settings-field">
-                <span>Expected CTC</span>
+                <span>{t('settings.jobsmarket.expectedCTC')}</span>
                 <input
                   value={settings.expectedCTC}
                   onChange={(e) => saveSettings({ expectedCTC: e.target.value })}
                 />
               </label>
               <Toggle
-                label="Job alerts"
+                label={t('settings.jobsmarket.jobAlerts')}
                 checked={settings.jobAlerts}
                 onChange={(v) => saveSettings({ jobAlerts: v })}
               />
               <Toggle
-                label="Marketplace lead notifications"
+                label={t('settings.jobsmarket.marketAlerts')}
                 checked={settings.marketLeadAlerts}
                 onChange={(v) => saveSettings({ marketLeadAlerts: v })}
               />
@@ -356,80 +385,153 @@ export default function Settings() {
 
           {activeTab === 'content' && (
             <section className="settings-section">
-              <h2>Content & Downloads</h2>
+              <h2>{t('settings.content.heading')}</h2>
               <Toggle
-                label="Auto-download shared files"
+                label={t('settings.content.autoDownload')}
                 checked={settings.autoDownloadFiles}
                 onChange={(v) => saveSettings({ autoDownloadFiles: v })}
               />
               <Toggle
-                label="Auto-play videos"
+                label={t('settings.content.autoplay')}
                 checked={settings.videoAutoplay}
                 onChange={(v) => saveSettings({ videoAutoplay: v })}
               />
               <Select
-                label="Video playback quality"
+                label={t('settings.content.quality')}
                 value={settings.videoQuality}
                 onChange={(v) => saveSettings({ videoQuality: v })}
                 options={[
-                  { value: 'auto', label: 'Auto' },
-                  { value: 'high', label: 'High' },
-                  { value: 'data-saver', label: 'Data saver' },
+                  { value: 'auto', label: t('settings.opt.auto') },
+                  { value: 'high', label: t('settings.opt.high') },
+                  { value: 'data-saver', label: t('settings.opt.dataSaver') },
                 ]}
               />
               <button className="btn btn-secondary" onClick={clearLocalCache}>
-                Clear local cache
+                {t('settings.content.clearCache')}
               </button>
             </section>
           )}
 
           {activeTab === 'notifications' && (
             <section className="settings-section">
-              <h2>Notifications</h2>
+              <h2>{t('settings.notif.heading')}</h2>
               <Toggle
-                label="Chat messages"
+                label={t('settings.notif.chat')}
                 checked={settings.notifyChatMessages}
                 onChange={(v) => saveSettings({ notifyChatMessages: v })}
               />
               <Toggle
-                label="Job alerts"
+                label={t('settings.notif.jobs')}
                 checked={settings.notifyJobAlerts}
                 onChange={(v) => saveSettings({ notifyJobAlerts: v })}
               />
               <Toggle
-                label="Marketplace leads"
+                label={t('settings.notif.market')}
                 checked={settings.notifyMarketLeads}
                 onChange={(v) => saveSettings({ notifyMarketLeads: v })}
               />
               <Toggle
-                label="Admin announcements"
+                label={t('settings.notif.admin')}
                 checked={settings.notifyAdminAnnouncements}
                 onChange={(v) => saveSettings({ notifyAdminAnnouncements: v })}
               />
               <Toggle
-                label="Push notifications"
+                label={t('settings.notif.push')}
                 checked={settings.notifyPush}
                 onChange={(v) => saveSettings({ notifyPush: v })}
               />
               <Toggle
-                label="Email notifications"
+                label={t('settings.notif.email')}
                 checked={settings.notifyEmail}
                 onChange={(v) => saveSettings({ notifyEmail: v })}
               />
             </section>
           )}
 
+          {activeTab === 'appearance' && (
+            <section className="settings-section">
+              <h2>{t('settings.appearance.heading')}</h2>
+
+              <div className="settings-field">
+                <span>{t('settings.appearance.theme')}</span>
+                <div className="theme-toggle-row">
+                  <button
+                    type="button"
+                    className={'theme-toggle-btn' + (theme === 'dark' ? ' active' : '')}
+                    onClick={() => setTheme('dark')}
+                  >
+                    🌙 {t('settings.appearance.theme.dark')}
+                  </button>
+                  <button
+                    type="button"
+                    className={'theme-toggle-btn' + (theme === 'light' ? ' active' : '')}
+                    onClick={() => setTheme('light')}
+                  >
+                    ☀️ {t('settings.appearance.theme.light')}
+                  </button>
+                </div>
+              </div>
+
+              <label className="settings-field" style={{ marginTop: 18 }}>
+                <span>{t('settings.appearance.accent')}</span>
+                <div className="accent-swatches">
+                  {ACCENT_COLORS.map((c) => (
+                    <button
+                      key={c.key}
+                      type="button"
+                      title={c.label}
+                      className={'accent-swatch' + (accent === c.value ? ' selected' : '')}
+                      style={{ background: c.value }}
+                      onClick={() => setAccent(c.value)}
+                    >
+                      {accent === c.value ? '✓' : ''}
+                    </button>
+                  ))}
+                </div>
+              </label>
+
+              <Toggle
+                label={t('settings.appearance.compact')}
+                checked={compact}
+                onChange={setCompact}
+              />
+            </section>
+          )}
+
+          {activeTab === 'language' && (
+            <section className="settings-section">
+              <h2>{t('settings.language.heading')}</h2>
+              <p className="settings-toggle-hint" style={{ marginBottom: 10 }}>{t('settings.language.choose')}</p>
+              <div className="language-list">
+                {languages.map((l) => (
+                  <button
+                    key={l.code}
+                    type="button"
+                    className={'language-row' + (lang === l.code ? ' selected' : '')}
+                    onClick={() => setLang(l.code)}
+                  >
+                    <span>
+                      {l.label}
+                      <span className="language-native">{l.native}</span>
+                    </span>
+                    {lang === l.code && <span className="language-check">✓</span>}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
           {activeTab === 'admin' && currentProfile?.isAdmin && (
             <section className="settings-section">
-              <h2>Admin Access</h2>
-              <p>You have admin privileges on DistilleryHub.</p>
+              <h2>{t('settings.admin.heading')}</h2>
+              <p>{t('settings.admin.text')}</p>
               <button className="btn btn-primary" onClick={() => navigate('/admin')}>
-                Open Admin Portal
+                {t('settings.admin.open')}
               </button>
             </section>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
-      }
+}

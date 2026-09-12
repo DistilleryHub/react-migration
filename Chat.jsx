@@ -6,6 +6,7 @@ import {
 import { db, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from './firebase';
 import { useAuth } from './AuthContext';
 import { useCall } from './CallContext';
+import { useLanguage } from './LanguageContext';
 
 function chatIdFor(uidA, uidB) {
   return [uidA, uidB].sort().join('_');
@@ -123,6 +124,7 @@ function renderFormattedText(text) {
 export default function Chat() {
   const { currentUser } = useAuth();
   const { startCall } = useCall();
+  const { t } = useLanguage();
   const [people, setPeople] = useState([]);
   const [connections, setConnections] = useState([]);
   const [groupChats, setGroupChats] = useState([]);
@@ -970,7 +972,7 @@ export default function Chat() {
     return (
       <div className="chat-thread">
         <div className="chat-thread-header">
-          <button className="btn btn-ghost btn-sm" onClick={() => { setActiveChat(null); setReplyTo(null); }}>← Back</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setActiveChat(null); setReplyTo(null); }}>← {t('chat.back')}</button>
           <div className="avatar">
             {photoURL ? <img src={photoURL} alt="" /> : (name?.[0] || '?')}
           </div>
@@ -980,21 +982,21 @@ export default function Chat() {
           </div>
           <div className="chat-call-actions">
             {activeChat.type === 'group' && (
-              <button className="chat-call-btn" onClick={() => setShowManageGroup((v) => !v)} title="Manage group">⚙️</button>
+              <button className="chat-call-btn" onClick={() => setShowManageGroup((v) => !v)} title={t('chat.manageGroup')}>⚙️</button>
             )}
-            <button className="chat-call-btn" onClick={() => handleStartCall('audio')} title="Voice call">📞</button>
-            <button className="chat-call-btn" onClick={() => handleStartCall('video')} title="Video call">📹</button>
-            <button className="chat-call-btn" onClick={() => setShowChatMenu((v) => !v)} title="More options">⋮</button>
+            <button className="chat-call-btn" onClick={() => handleStartCall('audio')} title={t('chat.voiceCall')}>📞</button>
+            <button className="chat-call-btn" onClick={() => handleStartCall('video')} title={t('chat.videoCall')}>📹</button>
+            <button className="chat-call-btn" onClick={() => setShowChatMenu((v) => !v)} title={t('chat.moreOptions')}>⋮</button>
           </div>
         </div>
 
         {showChatMenu && (
-          <div className="chat-dropdown-menu" style={{ display: 'flex', flexDirection: 'column', background: '#00000015', fontSize: 13 }}>
-            <button className="attach-item" onClick={() => { setShowSearchBar((v) => !v); setShowChatMenu(false); }}>🔍 Search in chat</button>
-            <button className="attach-item" onClick={() => { setShowWallpaperPicker((v) => !v); setShowChatMenu(false); }}>🖼️ Wallpaper</button>
-            <button className="attach-item" onClick={() => { setShowDisappearingMenu((v) => !v); setShowChatMenu(false); }}>⏳ Disappearing messages</button>
-            <button className="attach-item" onClick={clearChatForMe}>🧹 Clear chat</button>
-            <button className="attach-item" onClick={() => { toggleMute(); setShowChatMenu(false); }}>{isMuted ? '🔔 Unmute' : '🔕 Mute'}</button>
+          <div className="chat-dropdown-menu">
+            <button className="attach-item" onClick={() => { setShowSearchBar((v) => !v); setShowChatMenu(false); }}>🔍 {t('chat.searchInChat')}</button>
+            <button className="attach-item" onClick={() => { setShowWallpaperPicker((v) => !v); setShowChatMenu(false); }}>🖼️ {t('chat.wallpaper')}</button>
+            <button className="attach-item" onClick={() => { setShowDisappearingMenu((v) => !v); setShowChatMenu(false); }}>⏳ {t('chat.disappearing')}</button>
+            <button className="attach-item" onClick={clearChatForMe}>🧹 {t('chat.clearChat')}</button>
+            <button className="attach-item" onClick={() => { toggleMute(); setShowChatMenu(false); }}>{isMuted ? `🔔 ${t('chat.unmute')}` : `🔕 ${t('chat.mute')}`}</button>
           </div>
         )}
 
@@ -1410,11 +1412,11 @@ export default function Chat() {
               </button>
               <input
                 type="text"
-                placeholder={activeChat.type === 'group' ? "Type a message... (@ to mention, *bold*, _italic_)" : "Type a message... (*bold*, _italic_, ~strike~, > quote)"}
+                placeholder={t('chat.typeMessage')}
                 value={text}
                 onChange={handleTextChange}
               />
-              <button type="submit" className="btn btn-primary btn-sm">Send</button>
+              <button type="submit" className="btn btn-primary btn-sm">{t('chat.send')}</button>
             </form>
           </>
         )}
