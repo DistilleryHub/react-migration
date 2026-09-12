@@ -978,13 +978,12 @@ export default function Chat() {
     return (
       <div className="chat-thread">
         <div className="chat-thread-header">
-          <button className="btn btn-ghost btn-sm" onClick={() => { setActiveChat(null); setReplyTo(null); }}>← {t('chat.back')}</button>
           <div className="avatar">
             {photoURL ? <img src={photoURL} alt="" /> : (name?.[0] || '?')}
           </div>
           <div>
             <div className="chat-thread-name">{name}{isAdmin && ' 👑'}</div>
-            {statusLabel && <div style={{ fontSize: 11, opacity: 0.7 }}>{statusLabel}</div>}
+            {statusLabel && <div className="chat-thread-status">{statusLabel}</div>}
           </div>
           <div className="chat-call-actions">
             {activeChat.type === 'group' && (

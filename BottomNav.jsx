@@ -42,17 +42,16 @@ export default function BottomNav({ onMenuClick, labels = {} }) {
         {L.status}
       </NavLink>
 
-      {/* Feed — primary tab, visually raised/highlighted */}
-      <NavLink to="/" end className={({ isActive }) => tabBase + (isActive ? ' ' + tabActive : '')}>
+      <NavLink to="/" end className={({ isActive }) => 'flex flex-1 flex-col items-center justify-center gap-1 py-1.5 text-[10.5px] font-medium text-slate-400 transition active:scale-90 active:opacity-70'}>
         {({ isActive }) => (
           <>
             <span
               className={
-                'flex items-center justify-center w-9 h-9 rounded-full transition ' +
-                (isActive ? 'bg-brand text-white' : 'bg-brand/15 text-brand')
+                'flex items-center justify-center w-14 h-14 rounded-full -mt-6 border-4 border-white shadow-lg transition ' +
+                (isActive ? 'bg-brand text-white' : 'bg-brand text-white')
               }
             >
-              <IconHome className="w-5 h-5" />
+              <IconHome className="w-6 h-6" />
             </span>
             <span className={isActive ? 'text-brand' : 'text-slate-400'}>{L.feed}</span>
           </>
