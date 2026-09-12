@@ -22,6 +22,8 @@ function hexToRgb(hex) {
 
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', theme === 'light' ? '#ffffff' : '#0b1325');
 }
 
 function applyAccent(hex) {
