@@ -19,7 +19,6 @@ async function sendToUser(userId, title, body, url) {
     },
   });
 
-  // Jo tokens invalid/expired hain unhe Firestore se hata dena
   const badTokens = [];
   response.responses.forEach((r, i) => {
     if (!r.success) badTokens.push(tokens[i]);
