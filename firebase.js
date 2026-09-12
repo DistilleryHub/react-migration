@@ -23,7 +23,7 @@ export const db = getFirestore(fbApp);
 export const storage = getStorage(fbApp);
 
 // Firebase Console → Project Settings → Cloud Messaging → Web Push certificates
-export const VAPID_KEY = "PASTE_YOUR_VAPID_KEY_HERE";
+export const VAPID_KEY = "BBceo8OB04fIWdPnTAInbfY8_zSqbuGrFVk41hpxtkfKIveY43s0Twzk62-9gSyP9YYL268IsPtsyYTkb1vOnK0";
 
 let messagingInstance = null;
 export async function getMessagingIfSupported() {
