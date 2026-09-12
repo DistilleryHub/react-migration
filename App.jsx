@@ -86,7 +86,7 @@ export default function App() {
               <div className="app-shell">
                 {/* ---------- Top bar (same on web + mobile) ---------- */}
                 <header className="mobile-topbar">
-                  <span className="mobile-topbar-brand">🥃 DistilleryHub</span>
+                  <span className="mobile-topbar-brand">DistilleryHub</span>
                   <button
                     type="button"
                     className="mobile-topbar-avatar-btn"
