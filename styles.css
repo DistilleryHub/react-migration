@@ -296,9 +296,9 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
 
 .post-header { display: flex; gap: 10px; align-items: flex-start; padding: 0 14px; }
 .post-author { flex: 1; }
-.post-author-name { font-weight: 600; color: #0f172a; font-size: 14.5px; }
-.post-author-headline, .post-time { font-size: 12px; color: #6b7280; }
-.post-text { margin: 12px 14px; white-space: pre-wrap; font-size: 14px; color: #1f2937; }
+.post-author-name { font-weight: 600; color: var(--text); font-size: 14.5px; }
+.post-author-headline, .post-time { font-size: 12px; color: var(--muted); }
+.post-text { margin: 12px 14px; white-space: pre-wrap; font-size: 14px; color: var(--text); }
 .post-image {
   width: 100%;
   display: block;
@@ -328,7 +328,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
 .person-info { flex: 1; }
 .people-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 14px; }
 .person-card { text-align: center; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 10px; }
-.person-name { font-weight: 600; margin-top: 6px; }
+.person-name { font-weight: 600; margin-top: 6px; color: var(--text); display: block; }
 .person-headline, .person-company { font-size: 12px; color: var(--muted); }
 
 /* ===== Jobs, Articles, Marketplace, Notifications ===== */
