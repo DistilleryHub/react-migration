@@ -133,8 +133,10 @@ export function IconVolumeMute({ className = 'w-5 h-5' }) {
     </svg>
   );
 }
+
 export function IconThumbsUp({ className = 'w-4 h-4' }) {
   return (
+    <svg {...base} className={className}>
       <path d="M11 21h6.5a2 2 0 0 0 2-1.6l1.3-7A2 2 0 0 0 18.8 10H14l1-5.5a1.7 1.7 0 0 0-3-1.3L7 10H3v11h4" />
     </svg>
   );
