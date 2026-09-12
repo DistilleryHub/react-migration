@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { db } from '../firebase';
-import { useAuth } from '../AuthContext';
-import { useLanguage } from '../LanguageContext';
+import { db } from './firebase';
+import { useAuth } from './AuthContext';
+import { useLanguage } from './LanguageContext';
 import TopBar from './TopBar';
 import BottomNav from './BottomNav';
 
