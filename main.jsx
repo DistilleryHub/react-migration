@@ -15,6 +15,7 @@ import { ToastProvider } from './ToastContext.jsx';
 import { ThemeProvider } from './ThemeContext.jsx';
 import { LanguageProvider } from './LanguageContext.jsx';
 import './styles.css';
+import './tailwind.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

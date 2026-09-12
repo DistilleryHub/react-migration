@@ -10,15 +10,7 @@ import { startRingback, startRingtone } from './callSounds';
 const CallContext = createContext(null);
 export function useCall() { return useContext(CallContext); }
 
-// Metered.ca dedicated TURN account (distilleryhub) — replaces the old
-// shared/public "openrelayproject" TURN pool, which gets overloaded when
-// callers are on different networks (different WiFi / mobile data / carriers).
-const METERED_DOMAIN = 'distilleryhub.metered.live';
-const METERED_API_KEY = '3aFO8WZGwKgsqyjenplzOeSJ6q50XuG68No0N56fqIECvA8T';
-
-// Kept only as a fallback if the Metered credentials fetch ever fails
-// (e.g. offline, key regenerated, quota issue) — better than no TURN at all.
-const FALLBACK_ICE_SERVERS = {
+const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
@@ -40,23 +32,6 @@ const FALLBACK_ICE_SERVERS = {
   ],
 };
 
-// Fetches fresh, dedicated TURN credentials from our own Metered account.
-// Falls back to the public pool only if this ever fails.
-async function fetchIceServers() {
-  try {
-    const res = await fetch(
-      `https://${METERED_DOMAIN}/api/v1/turn/credentials?apiKey=${METERED_API_KEY}`
-    );
-    const iceServers = await res.json();
-    if (Array.isArray(iceServers) && iceServers.length > 0) {
-      return { iceServers };
-    }
-  } catch (e) {
-    console.error('DistilleryHub call: failed to fetch Metered TURN credentials, using fallback', e);
-  }
-  return FALLBACK_ICE_SERVERS;
-}
-
 export function CallProvider({ children }) {
   const { currentUser } = useAuth();
   const [activeCall, setActiveCall] = useState(null);
@@ -74,7 +49,6 @@ export function CallProvider({ children }) {
   const pendingCandidatesRef = useRef({}); // peerUid -> [candidate, ...] queued until remoteDescription is set
   const ringbackStopRef = useRef(null);
   const ringtoneStopRef = useRef(null);
-  const iceServersRef = useRef(FALLBACK_ICE_SERVERS); // refreshed at the start of every call
 
   useEffect(() => { activeCallRef.current = activeCall; }, [activeCall]);
 
@@ -144,7 +118,7 @@ export function CallProvider({ children }) {
   }
 
   function createPeerConnection(peerUid, callId) {
-    const pc = new RTCPeerConnection(iceServersRef.current);
+    const pc = new RTCPeerConnection(ICE_SERVERS);
 
     localStreamRef.current?.getTracks().forEach((track) => {
       pc.addTrack(track, localStreamRef.current);
@@ -275,8 +249,6 @@ export function CallProvider({ children }) {
 
   const startCall = useCallback(async (participantUids, callType = 'video') => {
     if (!currentUser) return;
-    iceServersRef.current = await fetchIceServers();
-
     const allParticipants = [...new Set([currentUser.uid, ...participantUids])];
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: true,
@@ -306,7 +278,6 @@ export function CallProvider({ children }) {
 
   const joinCall = useCallback(async (call) => {
     if (ringtoneStopRef.current) { ringtoneStopRef.current(); ringtoneStopRef.current = null; }
-    iceServersRef.current = await fetchIceServers();
 
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: true,
@@ -431,4 +402,4 @@ export function CallProvider({ children }) {
       {children}
     </CallContext.Provider>
   );
-          }
+}

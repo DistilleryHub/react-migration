@@ -1,9 +1,9 @@
 /* ===== Base + Theme ===== */
 :root {
-  --bg: #0a0f1a;
+  --bg: #0b1325;
   --bg-elevated: #0f1729;
-  --card-bg: #131f35;
-  --card-hover: #16233c;
+  --card-bg: #131e36;
+  --card-hover: #1a2842;
   --text: #eef2f7;
   --muted: #8b98ac;
   --muted-2: #5f6c80;
@@ -11,7 +11,7 @@
   --primary-hover: #3d6bef;
   --primary-soft: rgba(79, 127, 255, 0.12);
   --danger: #f5576c;
-  --border: #1e293f;
+  --border: #1e2b45;
   --radius-sm: 8px;
   --radius: 14px;
   --radius-lg: 20px;
@@ -996,13 +996,3 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
 ::-webkit-scrollbar-track { background: transparent; }
-
-.card {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px;
-  margin-bottom: 8px;
-  box-shadow: var(--shadow);
-  transition: border-color 0.15s ease;
-}
