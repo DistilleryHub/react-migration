@@ -3,7 +3,7 @@ import { useAuth } from './AuthContext.jsx';
 import { useLanguage } from './LanguageContext.jsx';
 import { CallProvider } from './CallContext.jsx';
 import CallScreen from './CallScreen.jsx';
-import MainLayout from './components/MainLayout.jsx';
+import MainLayout from './MainLayout.jsx';
 import Feed from './Feed.jsx';
 import Auth from './Auth.jsx';
 import Network from './Network.jsx';
