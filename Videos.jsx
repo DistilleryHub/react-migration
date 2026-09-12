@@ -6,7 +6,7 @@ import { db } from './firebase';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { useLanguage } from './LanguageContext';
-import { IconThumbsUp, IconComment, IconSend, IconVolume, IconVolumeMute } from './components/Icons';
+import { IconThumbsUp, IconComment, IconSend, IconVolume, IconVolumeMute } from './Icons';
 
 function getYouTubeId(url) {
   const m = url?.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([\w-]{11})/);

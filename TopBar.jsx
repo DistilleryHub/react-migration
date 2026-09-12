@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useAuth } from '../AuthContext';
+import { useAuth } from './AuthContext';
 import { IconSearch, IconMessage, IconBell, IconMaximize, IconMinimize } from './Icons';
 
 export default function TopBar({ profile, unreadNotifications = 0 }) {

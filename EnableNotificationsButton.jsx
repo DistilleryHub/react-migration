@@ -1,4 +1,4 @@
-import { useNotifications } from '../context/NotificationContext';
+import { useNotifications } from './NotificationContext';
 
 export default function EnableNotificationsButton() {
   const { permission, enabling, enableNotifications, disableNotifications } = useNotifications();
